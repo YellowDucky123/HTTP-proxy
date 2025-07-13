@@ -6,6 +6,7 @@
 #include <arpa/inet.h>	//inet_addr
 #include <unistd.h>
 #include "connection.h"
+#include "linkedlist.h"
 
 void process_connect_data(int sock, char* host, char* Proxy_auth);
 
@@ -50,7 +51,7 @@ int main(int argc, char** argv) {
 	
 	//Accept and incoming connection
 	puts("Waiting for incoming connections...");
-	while(true) {
+	while(1) {
 		struct sockaddr_in client_address;
 		socklen_t client_address_len = sizeof(client_address);
 
@@ -60,10 +61,12 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 
-		int buffer_len = 1024;
+		int buffer_len = 8200;
 		char buffer[buffer_len];
 		size_t inbuf_used = 0;
 
+
+		struct linkedlist header_fields = linkedListConstructor();
 		int rv = 0;
 
 		// get the method and full uri
@@ -83,7 +86,7 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 		char* full_uri = strtok(NULL, " ");
-		line_start += line_end + 1;
+		line_start = line_end + 1;
 
 		/* Shift buffer down so the unprocessed data is at the start */
 		inbuf_used -= (line_start - buffer);
