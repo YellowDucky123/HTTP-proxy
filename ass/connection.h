@@ -16,6 +16,16 @@ typedef struct request_info {
 int ConnectMethodServerConnection();
 
 // connect to the server when the method is not CONNECT
-int ServerConnection(request_info* req_info, char* line_start, char* line_end, char* buffer, int inbuf_used);
+// returns 1 if connection = keep-alive
+// returns 0 if connectino = closed
+int ServerConnection(
+    int sock, 
+    char* method, 
+    char* absolute_form, 
+    char* line_start, 
+    char* line_end, 
+    char* buffer, 
+    int buffer_len, 
+    int* inbuf_used);
 
 #endif
