@@ -7,8 +7,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #include "linkedlist.h"
+
+char* skipLeadingWhitespace(char* str);
 
 int getSocketFD(char* host) {
     struct addrinfo hints;
@@ -23,7 +26,7 @@ int getSocketFD(char* host) {
 
     int s = getaddrinfo(host, "http", &hints, &result);
     if (s != 0) {
-        printf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        printf("getaddrinfo: %s\n", gai_strerror(s));
         return -1;
     }
 
@@ -72,21 +75,24 @@ int process_header_data(
 	*/
     int keep_going = 1;
     while(keep_going) {
-        while ((line_end = (char*)memchr((void*)line_start, '\n', inbuf_used - (line_start - buffer)))) {
+        while ((line_end = (char*)memchr((void*)line_start, '\n', *inbuf_used - (line_start - buffer)))) {
             if(strlen(line_start) == 1 && strcmp(line_start, "\r") == 0) {
                 keep_going = 0;
             }
             *line_end = 0; // Set null to divide line
-            char* field, data;
+            char* field, *data;
             char* divider = memchr(line_start, ':', strlen(line_start)); // tokenise with ':'
-            if(divider) {
-                *divider = '\0';
-                field = line_start; /* Start to ':'  (pointer) */
-                data = divider + 2; /* ':' to end without the leading space (pointer) */
+            if(!divider) {
+                printf("Malformed header line (missing colon): %s\n", line_start);
+                return 1;
             }
 
-            if(data == NULL) {
-                printf("Malformed header line: %s %s\n", line_start, divider + 1);
+            *divider = '\0';
+            field = line_start; /* Start to ':'  (pointer) */
+            data = skipLeadingWhitespace(divider + 1); /* ':' to end without the leading space (pointer) */
+
+            if(strlen(data) == 0) {
+                printf("Malformed header line (no data): %s\n", field);
                 return 1;
             }
             
@@ -98,8 +104,8 @@ int process_header_data(
             line_start = line_end + 1;
         }
         /* Shift buffer down so the unprocessed data is at the start */
-        inbuf_used -= (line_start - buffer);
-        memmove(buffer, line_start, inbuf_used);
+        *inbuf_used -= (line_start - buffer);
+        memmove(buffer, line_start, *inbuf_used);
 
         int rv;
         if((rv = recv(sock, buffer + (*inbuf_used), buffer_len - (*inbuf_used), 0)) <= 0) {
@@ -118,4 +124,13 @@ int send_message(int sfd, char* body, int body_length) {
     }
     if(body_length < 0) return -1;
     return 1;
+}
+
+/* - private - */
+
+char* skipLeadingWhitespace(char* str) {
+    while(isspace((unsigned char)*str)) {
+        str++;
+    }
+    return str;
 }
