@@ -84,8 +84,9 @@ int process_header_data(
                 field = line_start; /* Start to ':'  (pointer) */
                 data = divider + 2; /* ':' to end without the leading space (pointer) */
             }
+
             if(data == NULL) {
-                printf("Malformed header line: %s\n", line_start);
+                printf("Malformed header line: %s %s\n", line_start, divider + 1);
                 return 1;
             }
             
