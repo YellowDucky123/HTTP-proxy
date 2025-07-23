@@ -109,3 +109,12 @@ int process_header_data(
     }
     return 0;
 }
+
+int send_message(int sfd, char* body, int body_length) {
+    while(body_length > 0) {
+        int bytes = send(sfd, body, body_length, 0);
+        body_length -= bytes;
+    }
+    if(body_length < 0) return -1;
+    return 1;
+}

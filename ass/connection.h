@@ -13,7 +13,7 @@ typedef struct request_info {
 } request_info;
 
 // connect to server with CONNECT method
-int ConnectMethodServerConnection();
+int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_form);
 
 // connect to the server when the method is not CONNECT
 // returns 1 if connection = keep-alive

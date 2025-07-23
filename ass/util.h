@@ -12,6 +12,8 @@ int process_header_data(
     char* buffer, 
     int buffer_len,
     int* inbuf_used
-); 
+);
+
+int send_message(int sfd, char* body, int body_length);
 
 #endif

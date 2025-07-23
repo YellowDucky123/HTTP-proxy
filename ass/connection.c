@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <time.h>
+#include <stdlib.h>
 
 // custom includes
 #include "linkedlist.h"
@@ -22,7 +23,7 @@
 #define CONNECT 4
 
 char* proxy_header_factory(struct linkedlist* header_fields);
-char* process_body(struct linkedlist* header_fields, int sock);
+char* process_body(struct linkedlist* header_fields, int sock, int* req_body_length);
 void process_data(
     struct linkedlist* header_fields, 
     int sock, char* method, 
@@ -35,19 +36,8 @@ void process_data(
 );
 
 char* responseHeader(int sock, int* status_code, struct linkedlist* response_fields);
-
-int requestMethodWord(char* method) {
-    if(strcasecmp(method, "HEAD") == 0) {
-        return HEAD;
-    } else if(strcasecmp(method, "GET") == 0) {
-        return GET;
-    } else if(strcasecmp(method, "POST") == 0) {
-        return POST;
-    } else if(strcasecmp(method, "CONNECT") == 0) {
-        return CONNECT;
-    }
-    return -1;
-}
+char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length);
+int requestMethodWord(char* method); 
 
 int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_form) {
     if(strcmp(method, "CONNECT") != 0) {
@@ -128,25 +118,38 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* line_sta
 
     char* proxy_header = proxy_header_factory(&header_fields);
 
-    char* body = process_body(&header_fields, sfd);
+    int req_body_length;
+    char* body = process_body(&header_fields, sfd, &req_body_length);
 
     send(sfd, proxy_header, strlen(proxy_header), 0);
+    free(proxy_header);
     printf("proxy sent request header to server: %s\n", header_fields.search(&header_fields, "host"));
     if(body) {
-        send(sfd, body, strlen(body), 0);
+        send_message(sfd, body, req_body_length);
+        free(body);
         printf("proxy sent request body to server: %s\n", header_fields.search(&header_fields, "host"));
     }
 
     struct linkedlist response_fields = linkedListConstructor();
     int status_code;
-    char* response_header = responseheader(sfd, &requestMethod, &status_code, &response_fields);
-    char* response_body = responseBody(sfd, &response_fields, &requestMethod, &status_code);
+    char* response_header = responseHeader(sfd, &status_code, &response_fields);
+    int body_length;
+    char* response_body = responseBody(sfd, &response_fields, &requestMethod, &status_code, &body_length);
+
+    // 1234567890\r\n
+    // asdfghjkljhgfdsadsfgh jgfsdasfdgfhjghgfgdhjgsf
+
+    // 4\r\nlike5\r\nsomet7\r\nsomethn
 
     write(sock, response_header, strlen(response_header));
+    free(response_header);
     if(response_body) {
-        write(sock, response_body, strlen(response_body));
+        // loop through, strlen on body fix
+        send_message(sock, response_body, body_length);
+        free(response_body);
     }
     
+    close(sfd);
     return conn_status;
 }
 
@@ -178,7 +181,7 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     line_start = line_end + 1;
 
     /* Parse the response headers */
-    process_header_data(sock, response_fields, line_start, line_end, respond_buffer, respond_buffer_len, inbuf_used);
+    process_header_data(sock, response_fields, line_start, line_end, respond_buffer, respond_buffer_len, &inbuf_used);
     response_fields->insert(response_fields, "Via", "1.1 z5489321");
  
     /* Make the header */
@@ -200,17 +203,26 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     return return_buffer;
 }
 
-char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code) {
+char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length) {
     if((*request_method) == HEAD || (*status_code) == 204 || (*status_code) == 304) {
         return NULL;
     }
 
     int content_length = atoi(response_fields->search(response_fields, "content-length")) + 4;
+    *body_length = content_length;
+
     char* body = malloc(content_length);
-    if(recv(sock, body, content_length, 0) <= 0) {
-        printf("read response body fail\n");
-        exit(1);
+
+    int acumulate_byte = 0;
+    while(acumulate_byte < content_length) {
+        int rv;
+        if(recv(sock, body, content_length, 0) <= 0) {
+            printf("read response body fail\n");
+            exit(1);
+        }
+        acumulate_byte += rv;
     }
+
     return body;
 }
 
@@ -299,14 +311,15 @@ char* proxy_header_factory(struct linkedlist* header_fields) {
     return proxy_header;
 }
 
-// to process the request body
-char* process_body(struct linkedlist* header_fields, int sock) {
+// to process the request body returns buffer containing body
+char* process_body(struct linkedlist* header_fields, int sock, int* req_body_length) {
     char* str_content_length = header_fields->search(header_fields, "Content-Length");
     if(str_content_length == NULL) {
         return NULL;
     }
 
     int content_length = atoi(str_content_length);
+    *req_body_length = content_length;
 
     int buffer_len = content_length + 10;
     char* buffer = malloc(buffer_len);
@@ -314,11 +327,27 @@ char* process_body(struct linkedlist* header_fields, int sock) {
     int accumulate_byte = 0;
     while(accumulate_byte < content_length) {
         int rv;
-        if((rv = recv(sock, buffer, buffer_len, 0)) <= 0) {
+
+        // if 0 then it's disconnected not error
+        if((rv = recv(sock, buffer, buffer_len, 0)) < 0) {
             printf("recv error\n");
-            return 1;
+            return NULL;
         }
         accumulate_byte += rv;
     }
     return buffer;
+}
+
+
+int requestMethodWord(char* method) {
+    if(strcasecmp(method, "HEAD") == 0) {
+        return HEAD;
+    } else if(strcasecmp(method, "GET") == 0) {
+        return GET;
+    } else if(strcasecmp(method, "POST") == 0) {
+        return POST;
+    } else if(strcasecmp(method, "CONNECT") == 0) {
+        return CONNECT;
+    }
+    return -1;
 }

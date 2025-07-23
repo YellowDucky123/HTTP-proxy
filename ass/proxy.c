@@ -17,7 +17,7 @@ int max_object_size;
 int max_cache_size;
 
 void process_connect_data(int sock, char* host, char* Proxy_auth);
-void handle_client(int* sock);
+void handle_client(void* sock);
 
 
 int main(int argc, char** argv) {
@@ -87,14 +87,19 @@ int main(int argc, char** argv) {
             continue;
         }
 
-		handle_client(client_sock);	
+		pthread_t client_thread;
+		if(pthread_create(&client_thread, NULL, handle_client, (void*)client_sock) != 0) {
+			perror("pthread_create");
+            close(*client_sock);
+            free(client_sock);
+		}
+		pthread_detach(client_thread);
 	}
-
 
 	return 0;
 }
 
-void handle_client(int* sock) {
+void handle_client(void* sock) {
 	int client_socket = *(int *) sock;
 	free(sock);
 
@@ -112,7 +117,7 @@ void handle_client(int* sock) {
 	char client_host[INET_ADDRSTRLEN];
 	inet_ntop(AF_INET, &client_address.sin_addr, client_host, sizeof(client_host));
 	uint16_t client_port = ntohs(client_address.sin_port);
-	
+
 	printf("%s:%d - new connection\n", client_host, client_port);
 
 	/* Set as nonblocking */
@@ -178,7 +183,8 @@ void handle_client(int* sock) {
 
 		// process data based on method
 		if(strcmp(method, "CONNECT") == 0) {
-
+			ConnectMethodServerConnection(client_socket, method, absolute_form);
+			break;
 		} else {
 			keep_alive = ServerConnection(
 				client_socket, 
@@ -193,5 +199,6 @@ void handle_client(int* sock) {
 			if(keep_alive == -1) break;
 		}
 	}
+	close(client_socket);
 }
 
