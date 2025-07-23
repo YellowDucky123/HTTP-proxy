@@ -17,7 +17,7 @@ int max_object_size;
 int max_cache_size;
 
 void process_connect_data(int sock, char* host, char* Proxy_auth);
-void handle_client(void* sock);
+void* handle_client(void* sock);
 
 
 int main(int argc, char** argv) {
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
-void handle_client(void* sock) {
+void* handle_client(void* sock) {
 	int client_socket = *(int *) sock;
 	free(sock);
 
@@ -151,16 +151,18 @@ void handle_client(void* sock) {
 			continue;
 		}
 
+		printf("Select fd socket\n");
+
 		int buffer_len = 8200;
 		char buffer[buffer_len];
-		size_t inbuf_used = 0;
+		int inbuf_used = 0;
 
 		struct linkedlist header_fields = linkedListConstructor();
 		int rv = 0;
 
 		if((rv = recv(client_socket, buffer, buffer_len, 0)) <= 0) {
 			printf("recv error\n");
-			return 1;
+			return NULL;
 		}
 		inbuf_used += rv;
 
@@ -172,7 +174,7 @@ void handle_client(void* sock) {
 		char* method = strtok(line_start, " ");
 		if(method == NULL) {
 			printf("failed to parse method!\n");
-			return 1;
+			return NULL;
 		}
 		char* absolute_form = strtok(NULL, " ");
 		line_start = line_end + 1;
@@ -194,7 +196,7 @@ void handle_client(void* sock) {
 				line_end, 
 				buffer, 
 				buffer_len, 
-				inbuf_used
+				&inbuf_used
 			);
 			if(keep_alive == -1) break;
 		}
