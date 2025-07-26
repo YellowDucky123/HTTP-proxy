@@ -24,12 +24,10 @@
 
 char* proxy_header_factory(struct linkedlist* header_fields);
 char* process_body(struct linkedlist* header_fields, int sock, int* req_body_length);
-void process_data(
+int process_data(
     struct linkedlist* header_fields, 
     int sock, char* method, 
     char* absolute_form, 
-    char* line_start, 
-    char* line_end, 
     char* buffer, 
     int buffer_len, 
     int* inbuf_used
@@ -99,21 +97,34 @@ int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_
     return 0;
 }
 
-int ServerConnection(int sock, char* method, char* absolute_form, char* line_start, char* line_end, char* buffer, int buffer_len, int* inbuf_used) {
+int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, int buffer_len, int* inbuf_used) {
     struct linkedlist header_fields = linkedListConstructor();
     int requestMethod = requestMethodWord(method);
 
-    process_data(&header_fields, sock, method, absolute_form, line_start, line_end, buffer, buffer_len, inbuf_used);
-    
+    int validity = process_data(&header_fields, sock, method, absolute_form, buffer, buffer_len, inbuf_used);
+    printf("data processed\n");
+    if(validity == -1) {
+        printf("data not valid\n");
+        return -1;
+    }
+
     /* Connection status: keep-alive / close */
     char* conn_status_str = header_fields.search(&header_fields, "connection");
-    int conn_status = 1;
-    if(strcasecmp(conn_status_str, "close") == 0) {
-        conn_status = 0;
+    if(conn_status_str == NULL) {
+        conn_status_str = header_fields.search(&header_fields, "proxy-connection");
+        /* conn_status_str is still NULL, then both connection and proxy-connection does not exist */
+        if(conn_status_str == NULL) {
+            printf("connection/proxy-connection field does not exist in request header\n");
+            return -1;
+        }
     }
+
+    printf("check if client wants to keep-alive client-proxy connection\n");
+    int conn_status = (strcasecmp(conn_status_str, "close") == 0) ? 0 : 1;
 
     char* host = header_fields.search(&header_fields, "Host");
 
+    printf("Proxy connected to server\n");
     int sfd = getSocketFD(host);    // Connect to host
 
     char* proxy_header = proxy_header_factory(&header_fields);
@@ -122,19 +133,24 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* line_sta
     char* body = process_body(&header_fields, sfd, &req_body_length);
 
     send(sfd, proxy_header, strlen(proxy_header), 0);
+    printf("proxy sent request header -\n%s - to server: %s\n", proxy_header, host);
     free(proxy_header);
-    printf("proxy sent request header to server: %s\n", header_fields.search(&header_fields, "host"));
     if(body) {
         send_message(sfd, body, req_body_length);
         free(body);
-        printf("proxy sent request body to server: %s\n", header_fields.search(&header_fields, "host"));
+        printf("proxy sent request body to server: %s\n", host);
     }
 
     struct linkedlist response_fields = linkedListConstructor();
     int status_code;
     char* response_header = responseHeader(sfd, &status_code, &response_fields);
+
+    printf("\nresponse header -\n%s\n", response_header);
+
     int body_length;
     char* response_body = responseBody(sfd, &response_fields, &requestMethod, &status_code, &body_length);
+
+
 
     // 1234567890\r\n
     // asdfghjkljhgfdsadsfgh jgfsdasfdgfhjghgfgdhjgsf
@@ -173,15 +189,18 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     *line_end = 0;  // NULL
 
     char* status_code_str = strtok(line_start, " ");
-    status_code_str = strtok(NULL, " ");    // the code
-    char* status_message = strtok(NULL, " ");   // the message
+    status_code_str = strdup(strtok(NULL, " "));    // the code
+    char* status_message = strdup(strtok(NULL, " "));   // the message
 
     *status_code = atoi(status_code_str);
 
     line_start = line_end + 1;
+    inbuf_used -= (line_start - respond_buffer);
+    memmove(respond_buffer, line_start, inbuf_used);
+    respond_buffer[inbuf_used] = 0;
 
     /* Parse the response headers */
-    process_header_data(sock, response_fields, line_start, line_end, respond_buffer, respond_buffer_len, &inbuf_used);
+    process_header_data(sock, response_fields, respond_buffer, respond_buffer_len, &inbuf_used);
     response_fields->insert(response_fields, "Via", "1.1 z5489321");
  
     /* Make the header */
@@ -192,14 +211,17 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
 
     char* return_buffer = malloc(bytes + 1);
 
-    int offset = 0;
-    int written = sprintf(return_buffer, "HTTP/1.1 %s %s\r\n", status_code_str, status_message);
+    printf("status code: %s | status message: %s\n", status_code_str, status_message);
+
+    int offset = sprintf(return_buffer, "HTTP/1.1 %s %s\r\n", status_code_str, status_message);
     for(node* it = response_fields->head; it != NULL; it = it->next) {
-        written = sprintf(return_buffer + offset, "%s: %s\r\n", it->key, it->value);
+        int written = sprintf(return_buffer + offset, "%s: %s\r\n", it->key, it->value);
         offset += written;
     }
     sprintf(return_buffer + offset, "\r\n");
 
+    free(status_code_str);
+    free(status_message);
     return return_buffer;
 }
 
@@ -208,18 +230,25 @@ char* responseBody(int sock, struct linkedlist* response_fields, int* request_me
         return NULL;
     }
 
-    int content_length = atoi(response_fields->search(response_fields, "content-length")) + 4;
+    /* Get content length and check if there is a body */
+    int content_length = atoi(response_fields->search(response_fields, "content-length"));
     *body_length = content_length;
+    if(content_length == 0) {
+        return NULL;
+    }
+    content_length += 4; // if there exists a body, then add safety bytes
 
     char* body = malloc(content_length);
 
     int acumulate_byte = 0;
     while(acumulate_byte < content_length) {
         int rv;
-        if(recv(sock, body, content_length, 0) <= 0) {
+        if((rv = recv(sock, body, content_length, 0)) < 0) {
             printf("read response body fail\n");
             exit(1);
         }
+
+        if(rv == 0) break;
         acumulate_byte += rv;
     }
 
@@ -227,12 +256,10 @@ char* responseBody(int sock, struct linkedlist* response_fields, int* request_me
 }
 
 // Process data for any header that's not a CONNECT method
-void process_data(
+int process_data(
     struct linkedlist* header_fields, 
     int sock, char* method, 
     char* absolute_form, 
-    char* line_start, 
-    char* line_end, 
     char* buffer, 
     int buffer_len, 
     int* inbuf_used
@@ -246,17 +273,18 @@ void process_data(
         
         if (path_start) {
             // Temporarily null-terminate hostname
-            *path_start = '\0';
-            possible_backup_hostname = host_start;
+            *path_start = 0;
+            possible_backup_hostname = strdup(host_start);
+            printf("-------- %s\n", possible_backup_hostname);
 
-            // Path_start now points to the path starting with '/'
-            request_instruction = path_start + 1; // Skip '/'
-            
-            // If you want to restore the '/' character after processing
+            // restore the '/' character after processing
             *path_start = '/';
+            // Path_start now points to the path starting with '/'
+            request_instruction = path_start; // Skip '/'
+        
         } else {
             // No path: entire rest is hostname, path = "/"
-            possible_backup_hostname = host_start;
+            possible_backup_hostname = strdup(host_start);
             request_instruction = "/";
         }
     }
@@ -269,19 +297,23 @@ void process_data(
     sprintf(top, "%s %s HTTP/1.1\r\n", method, request_instruction);
     header_fields->insert(header_fields, "top", top);
 
+    printf("hostname - %s\n", possible_backup_hostname);
+    printf("request - %s\n", request_instruction);
     if(possible_backup_hostname != NULL) {
         header_fields->insert(header_fields, "Host", possible_backup_hostname);
+        free(possible_backup_hostname);
     }
 
     /* Only read until end of header "\r\n" */
-    process_header_data(sock, header_fields, line_start, line_end, buffer, buffer_len, inbuf_used);
+    return process_header_data(sock, header_fields, buffer, buffer_len, inbuf_used);
 }
 
 
 /* To make the new proxy request header */
 char* proxy_header_factory(struct linkedlist* header_fields) {
     header_fields->insert(header_fields, "Connection", "close");
-    header_fields->insert(header_fields, "Via", "1.1 z5489321");
+    // header_fields->insert(header_fields, "Via", "1.1 z5489321");
+    header_fields->delete(header_fields, "proxy-connection");
 
     /* get header size */
     size_t header_len = 5; // an extra 5 bytes to be safe
@@ -299,7 +331,7 @@ char* proxy_header_factory(struct linkedlist* header_fields) {
     size_t offset;
 
     char* top = header_fields->search(header_fields, "top");
-    offset = sprintf(proxy_header, "%s\r\n", top);
+    offset = sprintf(proxy_header, "%s", top);  // the "top line" already has "\r\n", look at proxy.c
     header_fields->delete(header_fields, "top");
 
     for(node* it = header_fields->head; it != NULL; it = it->next) {
@@ -320,6 +352,10 @@ char* process_body(struct linkedlist* header_fields, int sock, int* req_body_len
 
     int content_length = atoi(str_content_length);
     *req_body_length = content_length;
+
+    if(content_length == 0) {
+        return NULL;
+    }
 
     int buffer_len = content_length + 10;
     char* buffer = malloc(buffer_len);

@@ -22,8 +22,6 @@ int ServerConnection(
     int sock, 
     char* method, 
     char* absolute_form, 
-    char* line_start, 
-    char* line_end, 
     char* buffer, 
     int buffer_len, 
     int* inbuf_used);

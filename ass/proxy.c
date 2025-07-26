@@ -151,7 +151,7 @@ void* handle_client(void* sock) {
 			continue;
 		}
 
-		printf("Select fd socket\n");
+		printf("-- Select fd socket\n");
 
 		int buffer_len = 8200;
 		char buffer[buffer_len];
@@ -160,45 +160,60 @@ void* handle_client(void* sock) {
 		struct linkedlist header_fields = linkedListConstructor();
 		int rv = 0;
 
-		if((rv = recv(client_socket, buffer, buffer_len, 0)) <= 0) {
+		if((rv = recv(client_socket, buffer, buffer_len, 0)) < 0) {
 			printf("recv error\n");
 			return NULL;
 		}
+
+		if(rv == 0) {
+			printf("client disconnected from proxy\n");
+			return NULL;
+		}
 		inbuf_used += rv;
+
+		printf("request - %s\n", buffer);
 
 		// get the method and full uri
 		char *line_start = buffer;
 		char *line_end;
 		line_end = (char*)memchr((void*)line_start, '\n', inbuf_used - (line_start - buffer));
 		*line_end = 0;
-		char* method = strtok(line_start, " ");
+		printf("Request Line - %s\n", line_start);
+		char* method = strdup(strtok(line_start, " "));
+		printf("method - %s\n", method);
 		if(method == NULL) {
 			printf("failed to parse method!\n");
 			return NULL;
 		}
-		char* absolute_form = strtok(NULL, " ");
+		char* absolute_form = strdup(strtok(NULL, " "));
+		printf("absolute form - %s\n", absolute_form);
 		line_start = line_end + 1;
 
 		/* Shift buffer down so the unprocessed data is at the start */
 		inbuf_used -= (line_start - buffer);
 		memmove(buffer, line_start, inbuf_used);
+		buffer[inbuf_used] = 0;
 
 		// process data based on method
 		if(strcmp(method, "CONNECT") == 0) {
 			ConnectMethodServerConnection(client_socket, method, absolute_form);
+			free(method);
+			free(absolute_form);
 			break;
 		} else {
 			keep_alive = ServerConnection(
 				client_socket, 
 				method, 
-				absolute_form, 
-				line_start, 
-				line_end, 
+				absolute_form,  
 				buffer, 
 				buffer_len, 
 				&inbuf_used
 			);
-			if(keep_alive == -1) break;
+			if(keep_alive == -1) {
+				free(method);
+				free(absolute_form);
+				break;
+			}
 		}
 	}
 	close(client_socket);
