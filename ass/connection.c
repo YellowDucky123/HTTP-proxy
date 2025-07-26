@@ -37,11 +37,7 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
 char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length);
 int requestMethodWord(char* method); 
 
-int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_form) {
-    if(strcmp(method, "CONNECT") != 0) {
-        return -1;
-    }
-
+int Connect(int client_sock, char* absolute_form) {
     char* colon = strchr(absolute_form, ':');
     *colon = 0; // NULL
 
@@ -50,7 +46,7 @@ int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_
     char* host = absolute_form;
     int port = atoi(colon + 1);
     if(port != 443) {
-        char res[1024];
+        char res[200];
         sprintf(res, 
             "HTTP/1.1 400 Bad Request\r\n"
             "Server: Proxy-Kelvin\r\n"
@@ -63,13 +59,21 @@ int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_
         return -1;
     }
 
+    printf("> establishing CONNECT tunnel to %s:%d\n", host, port);
+
     int sfd = getSocketFD(host); // Connect to server
 
-    char res[1024];
+    char res[50];
     sprintf(res, 
         "HTTP/1.1 200 Connection Established\r\n\r\n"
     );
     write(client_sock, res, strlen(res));  // send 200 response to client
+
+    return sfd;
+}
+
+int ConnectMethodServerConnection(int client_sock, int sfd) {
+    printf(">-- Using CONNECT Tunnel to send request\n");
 
     while(1) {
         int rv;
@@ -80,6 +84,7 @@ int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_
                 break;
             }
             perror("recv CONNECT fail");
+            close(sfd);
             return -1;
         }
         send(sfd, buffer, strlen(buffer), 0);
@@ -90,10 +95,12 @@ int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_
                 break;
             }
             perror("recv CONNECT response failed");
+            close(sfd);
             return -1;
         }
-        write(client_sock, response, strlen(response));
+        send(client_sock, response, strlen(response), 0);
     }
+    close(sfd);
     return 0;
 }
 
@@ -119,7 +126,7 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
         }
     }
 
-    printf("check if client wants to keep-alive client-proxy connection\n");
+    printf("> checking whether client wants to keep-alive client-proxy connection\n");
     int conn_status = (strcasecmp(conn_status_str, "close") == 0) ? 0 : 1;
 
     char* host = header_fields.search(&header_fields, "Host");
@@ -165,7 +172,11 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
         free(response_body);
     }
     
+    /* clearing up the fields */
     close(sfd);
+    header_fields.destroyList(&header_fields);
+    response_fields.destroyList(&response_fields);
+
     return conn_status;
 }
 
@@ -188,9 +199,11 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     line_end = (char*)memchr((void*)line_start, '\n', inbuf_used - (line_start - respond_buffer));
     *line_end = 0;  // NULL
 
-    char* status_code_str = strtok(line_start, " ");
-    status_code_str = strdup(strtok(NULL, " "));    // the code
-    char* status_message = strdup(strtok(NULL, " "));   // the message
+    char* space1 = strchr(line_start, ' ');
+    char* space2 = strchr(space1 + 1, ' ');
+    *space2 = 0;
+    char* status_code_str = strdup(space1 + 1);
+    char* status_message = strdup(space2 + 1);
 
     *status_code = atoi(status_code_str);
 
@@ -211,7 +224,7 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
 
     char* return_buffer = malloc(bytes + 1);
 
-    printf("status code: %s | status message: %s\n", status_code_str, status_message);
+    printf("> status code: %s | status message: %s\n", status_code_str, status_message);
 
     int offset = sprintf(return_buffer, "HTTP/1.1 %s %s\r\n", status_code_str, status_message);
     for(node* it = response_fields->head; it != NULL; it = it->next) {

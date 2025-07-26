@@ -11,6 +11,8 @@
 #include "connection.h"
 #include "linkedlist.h"
 
+#define CONNECT_NOT_INITIATED -2
+
 int PORT;
 int timeout_duration;
 int max_object_size;
@@ -123,8 +125,9 @@ void* handle_client(void* sock) {
 	/* Set as nonblocking */
 	fcntl(client_socket, F_SETFL, O_NONBLOCK);
 
+	int sfd = CONNECT_NOT_INITIATED; // to keep socket to server for CONNECT
+
 	int keep_alive = 1;
-	
 	while(keep_alive) {
 		fd_set read_fds;
 		struct timeval timeout;
@@ -178,6 +181,7 @@ void* handle_client(void* sock) {
 		char *line_end;
 		line_end = (char*)memchr((void*)line_start, '\n', inbuf_used - (line_start - buffer));
 		*line_end = 0;
+		*(line_end - 1) = 0;
 		printf("Request Line - %s\n", line_start);
 		char* method = strdup(strtok(line_start, " "));
 		printf("method - %s\n", method);
@@ -194,27 +198,38 @@ void* handle_client(void* sock) {
 		memmove(buffer, line_start, inbuf_used);
 		buffer[inbuf_used] = 0;
 
-		// process data based on method
-		if(strcmp(method, "CONNECT") == 0) {
-			ConnectMethodServerConnection(client_socket, method, absolute_form);
+		// If CONNECT method is invoked and NOT initiated
+		if(strcmp(method, "CONNECT") == 0 && sfd == CONNECT_NOT_INITIATED) {
+			sfd = Connect(client_socket, absolute_form);
+			free(method);
+			free(absolute_form);
+			continue;
+		} 
+
+		/* if CONNECT IS initiated */
+		if(sfd != CONNECT_NOT_INITIATED) {
+			int c = ConnectMethodServerConnection(client_socket, sfd);
 			free(method);
 			free(absolute_form);
 			break;
-		} else {
-			keep_alive = ServerConnection(
-				client_socket, 
-				method, 
-				absolute_form,  
-				buffer, 
-				buffer_len, 
-				&inbuf_used
-			);
-			if(keep_alive == -1) {
-				free(method);
-				free(absolute_form);
-				break;
-			}
 		}
+
+		keep_alive = ServerConnection(
+			client_socket, 
+			method, 
+			absolute_form,  
+			buffer, 
+			buffer_len, 
+			&inbuf_used
+		);
+
+		if(keep_alive == -1) {
+			free(method);
+			free(absolute_form);
+			break;
+		}
+		free(method);
+		free(absolute_form);
 	}
 	close(client_socket);
 }

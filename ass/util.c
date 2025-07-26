@@ -28,7 +28,7 @@ int getSocketFD(char* host) {
 
     int s = getaddrinfo(host, "http", &hints, &result);
     if (s != 0) {
-        printf("getaddrinfo: %s\n", gai_strerror(s));
+        printf("ERROR - getaddrinfo: %s\n", gai_strerror(s));
         return -1;
     }
 
@@ -56,7 +56,7 @@ int getSocketFD(char* host) {
     freeaddrinfo(result);           /* No longer needed */
 
     if (rp == NULL) {               /* If no address succeeded */
-        fprintf(stderr, "Could not connect\n");
+        fprintf(stderr, "ERROR - Could not connect\n");
         return -1;
     }
     return sfd;
@@ -85,13 +85,14 @@ int process_header_data(
                 keep_going = 0;
                 break;
             }
-            printf("line is: %s\n", line_start);
+            *(line_end - 1) = 0;
+            printf("> Parsing header line: %s\n", line_start);
             // printf("line length: %x, %d\n", line_start[0], keep_going);
             // printf("r is %x\n", '\r');
             char* field, *data;
             char* divider = strchr(line_start, ':'); // tokenise with ':'
             if(divider == NULL) {
-                printf("Malformed header line (missing colon): %s\n", line_start);
+                printf("ERROR - Malformed header line (missing colon): %s\n", line_start);
                 return -1;
             }
 
@@ -100,7 +101,7 @@ int process_header_data(
             data = skipLeadingWhitespace(divider + 1); /* ':' to end without the leading space (pointer) */
 
             if(strlen(data) == 0) {
-                printf("Malformed header line (no data): %s\n", field);
+                printf("ERROR - Malformed header line (no data): %s\n", field);
                 return -1;
             }
             
@@ -118,7 +119,7 @@ int process_header_data(
 
         int rv;
         if((rv = recv(sock, buffer + (*inbuf_used), buffer_len - (*inbuf_used), 0)) <= 0) {
-            printf("recv error\n");
+            printf("ERROR - recv error\n");
             return -1;
         }
         (*inbuf_used) += rv;

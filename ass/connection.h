@@ -12,8 +12,11 @@ typedef struct request_info {
     int content_length;
 } request_info;
 
-// connect to server with CONNECT method
-int ConnectMethodServerConnection(int client_sock, char* method, char* absolute_form);
+int Connect(int client_sock, char* absolute_form);
+
+// used to tunnel after CONNECT has been established
+// returns -1 if ERROR
+int ConnectMethodServerConnection(int client_sock, int sfd);
 
 // connect to the server when the method is not CONNECT
 // returns 1 if connection = keep-alive
