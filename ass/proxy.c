@@ -120,7 +120,7 @@ void* handle_client(void* sock) {
 	inet_ntop(AF_INET, &client_address.sin_addr, client_host, sizeof(client_host));
 	uint16_t client_port = ntohs(client_address.sin_port);
 
-	printf("%s:%d - new connection\n", client_host, client_port);
+	printf(">>>>>>> %s:%d - new connection\n", client_host, client_port);
 
 	/* Set as nonblocking */
 	fcntl(client_socket, F_SETFL, O_NONBLOCK);
