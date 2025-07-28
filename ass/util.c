@@ -128,9 +128,17 @@ int process_header_data(
 }
 
 int send_message(int sfd, char* body, int body_length) {
+    int offset = 0;
     while(body_length > 0) {
-        int bytes = send(sfd, body, body_length, 0);
+        int bytes = send(sfd, body + offset, body_length, 0);
+
+        if (bytes < 0) {
+            perror("ERROR: send failed");
+            return -1;
+        }
+
         body_length -= bytes;
+        offset += bytes;
     }
     if(body_length < 0) return -1;
     return 1;
@@ -143,4 +151,18 @@ char* skipLeadingWhitespace(char* str) {
         str++;
     }
     return str;
+}
+
+int isChunkedTransferEncoding(struct linkedlist* response_fields) {
+    char* val = response_fields->search(response_fields, "transfer-encoding");
+
+    char* encoding = strtok(val, ",");
+    while(encoding != NULL) {
+        if(strcasecmp(encoding, "chunked") == 0) {
+            return 1;
+        }
+        encoding = strtok(NULL, ",");
+    }
+
+    return 0;
 }

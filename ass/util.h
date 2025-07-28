@@ -14,4 +14,7 @@ int process_header_data(
 
 int send_message(int sfd, char* body, int body_length);
 
+/* Checks whether header has chunked encoding in it */
+int isChunkedTransferEncoding(struct linkedlist* response_fields);
+
 #endif

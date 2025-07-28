@@ -45,16 +45,18 @@ int Connect(int client_sock, char* absolute_form) {
     time(&currentTime);
     char* host = absolute_form;
     int port = atoi(colon + 1);
+
+    /* Error */
+    char res[200];
+    sprintf(res, 
+        "HTTP/1.1 400 Bad Request\r\n"
+        "Server: Proxy-Kelvin\r\n"
+        "Date: %s\r\n"
+        "Content-Type: text/html\r\n\r\n"
+        "<h1>invalid port</h1>",
+        ctime(&currentTime)
+    );
     if(port != 443) {
-        char res[200];
-        sprintf(res, 
-            "HTTP/1.1 400 Bad Request\r\n"
-            "Server: Proxy-Kelvin\r\n"
-            "Date: %s\r\n"
-            "Content-Type: text/html\r\n\r\n"
-            "<h1>invalid port</h1>",
-            ctime(&currentTime)
-        );
         write(client_sock, res, strlen(res));
         return -1;
     }
@@ -62,6 +64,10 @@ int Connect(int client_sock, char* absolute_form) {
     printf("> establishing CONNECT tunnel to %s:%d\n", host, port);
 
     int sfd = getSocketFD(host); // Connect to server
+    if(sfd == -1) {
+        write(client_sock, res, strlen(res));
+        return -1;
+    }
 
     char res[50];
     sprintf(res, 
@@ -75,30 +81,48 @@ int Connect(int client_sock, char* absolute_form) {
 int ConnectMethodServerConnection(int client_sock, int sfd) {
     printf(">-- Using CONNECT Tunnel to send request\n");
 
+    int maxfd = ((sfd > client_sock) ? sfd : client_sock) + 1;
+
+    fd_set read_fds;
+
     while(1) {
-        int rv;
+        char buffer[4096];
 
-        char buffer[2048];
-        if((rv = recv(client_sock, buffer, 2048, 0)) <= 0) {
-            if(rv == 0) {
-                break;
-            }
-            perror("recv CONNECT fail");
-            close(sfd);
+        FD_ZERO(&read_fds);
+        FD_SET(client_sock, &read_fds);
+        FD_SET(sfd, &read_fds);
+
+        int sock_select = select(maxfd, &read_fds, NULL, NULL, NULL);
+        if(sock_select < 0) {
+            printf("ERROR: sock select failed\n");
             return -1;
         }
-        send(sfd, buffer, strlen(buffer), 0);
 
-        char response[2048];
-        if((rv = recv(sfd, response, 2048, 0)) <= 0) {
-            if(rv == 0) {
-                break;
+        if(FD_ISSET(client_sock, &read_fds)) {
+            int rv = recv(client_sock, buffer, 2048, 0);
+            if(rv < 0) {
+                perror("recv CONNECT fail");
+                close(sfd);
+                return -1;                
             }
-            perror("recv CONNECT response failed");
-            close(sfd);
-            return -1;
+
+            if(rv == 0) break;
+
+            send_message(sfd, buffer, rv);
         }
-        send(client_sock, response, strlen(response), 0);
+
+        if(FD_ISSET(sfd, &read_fds)) {
+            int rv = recv(sfd, buffer, 2048, 0);
+            if(rv < 0) {
+                perror("recv CONNECT fail");
+                close(sfd);
+                return -1;                
+            }
+
+            if(rv == 0) break;
+
+            send_message(client_sock, buffer, rv);
+        }
     }
     close(sfd);
     return 0;
@@ -148,26 +172,40 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
         printf("proxy sent request body to server: %s\n", host);
     }
 
+//-------------------------------------------------------------------------------------------
+
     struct linkedlist response_fields = linkedListConstructor();
     int status_code;
     char* response_header = responseHeader(sfd, &status_code, &response_fields);
 
     printf("\nresponse header -\n%s\n", response_header);
 
+    if(isChunkedTransferEncoding(&response_fields)) {
+        if(transferEncoding(sfd, sock) == - 1) {
+            /* clearing up the fields */
+            close(sfd);
+            header_fields.destroyList(&header_fields);
+            response_fields.destroyList(&response_fields);
+
+            return -1;
+        }
+        
+        /* clearing up the fields */
+        close(sfd);
+        header_fields.destroyList(&header_fields);
+        response_fields.destroyList(&response_fields);
+
+        return conn_status;
+    }
+
+    /* GO HERE IF NOT TRANSFER ENCODING */
+
     int body_length;
     char* response_body = responseBody(sfd, &response_fields, &requestMethod, &status_code, &body_length);
-
-
-
-    // 1234567890\r\n
-    // asdfghjkljhgfdsadsfgh jgfsdasfdgfhjghgfgdhjgsf
-
-    // 4\r\nlike5\r\nsomet7\r\nsomethn
 
     write(sock, response_header, strlen(response_header));
     free(response_header);
     if(response_body) {
-        // loop through, strlen on body fix
         send_message(sock, response_body, body_length);
         free(response_body);
     }
@@ -180,6 +218,28 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     return conn_status;
 }
 
+/* transfer encoding logic, if return 0, something is weird */
+int transferEncoding(int sfd, int client_socket) {
+    while(1) {
+        int buffer_len = 2048;
+        char buffer[buffer_len];
+        int rv;
+        if((rv = recv(sfd, buffer, buffer_len, 0)) < 0) {
+            printf("ERROR: transfer-encoding recv failed\n");
+            return -1;
+        }
+
+        /* If it's 0 then server disconnected */
+        if(rv == 0) {
+            return 1;
+        }
+
+        send_message(client_socket, buffer, rv);
+    }
+
+    return 0;
+}
+
 /* Receive response from server and forward to client */
 char* responseHeader(int sock, int* status_code, struct linkedlist* response_fields) {
     int respond_buffer_len = 1024;
@@ -187,7 +247,7 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     int inbuf_used = 0;
     int rv;
     if((rv = recv(sock, respond_buffer, respond_buffer_len, 0)) < 0) {
-        printf("recv response failed!\n");
+        printf("ERROR: recv response failed!\n");
     }
 
     inbuf_used = rv;
