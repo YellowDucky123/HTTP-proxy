@@ -8,6 +8,7 @@
         "type_traits": "c",
         "utility": "c",
         "connection.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "linkedlist.h": "c"
     }
 }

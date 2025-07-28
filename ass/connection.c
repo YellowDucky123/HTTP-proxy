@@ -33,8 +33,8 @@ int process_data(
     int* inbuf_used
 );
 
-char* responseHeader(int sock, int* status_code, struct linkedlist* response_fields);
-char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length);
+char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, struct linkedlist* response_fields);
+int responseBody(int sock, char* buf, int inbuf, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body);
 int requestMethodWord(char* method); 
 int transferEncoding(int sfd, int client_socket);
 
@@ -177,10 +177,13 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
     struct linkedlist response_fields = linkedListConstructor();
     int status_code;
-    char* response_header = responseHeader(sfd, &status_code, &response_fields);
+    int inbuf;
+    char* buf;
+    char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, &response_fields);
 
     printf("\nresponse header -\n%s\n", response_header);
 
+    /* IF CHUNKED ENCODING */
     if(isChunkedTransferEncoding(&response_fields)) {
         if(transferEncoding(sfd, sock) == - 1) {
             /* clearing up the fields */
@@ -199,10 +202,17 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
         return conn_status;
     }
 
-    /* GO HERE IF NOT TRANSFER ENCODING */
+    /* GO HERE IF NOT CHUNKED ENCODING */
 
     int body_length;
-    char* response_body = responseBody(sfd, &response_fields, &requestMethod, &status_code, &body_length);
+    char* response_body = NULL;
+    printf("> Parsing body\n");
+    if(responseBody(sfd, buf, inbuf, &response_fields, &requestMethod, &status_code, &body_length, &response_body) == -1) {
+        printf("ERROR: Recv failed\n");
+        return -1;
+    }
+
+    printf("Response body -\n%s\n", response_body);
 
     write(sock, response_header, strlen(response_header));
     free(response_header);
@@ -242,9 +252,11 @@ int transferEncoding(int sfd, int client_socket) {
 }
 
 /* Receive response from server and forward to client */
-char* responseHeader(int sock, int* status_code, struct linkedlist* response_fields) {
+char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, struct linkedlist* response_fields) {
     int respond_buffer_len = 1024;
-    char respond_buffer[respond_buffer_len];
+    *buf = malloc(respond_buffer_len);
+    char* respond_buffer = *buf;
+
     int inbuf_used = 0;
     int rv;
     if((rv = recv(sock, respond_buffer, respond_buffer_len, 0)) < 0) {
@@ -275,6 +287,7 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
 
     /* Parse the response headers */
     process_header_data(sock, response_fields, respond_buffer, respond_buffer_len, &inbuf_used);
+    *buf_left = inbuf_used;
     response_fields->insert(response_fields, "Via", "1.1 z5489321");
  
     /* Make the header */
@@ -299,34 +312,28 @@ char* responseHeader(int sock, int* status_code, struct linkedlist* response_fie
     return return_buffer;
 }
 
-char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length) {
+int responseBody(int sock, char* buf, int inbuf,
+    struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body) {
     if((*request_method) == HEAD || (*status_code) == 204 || (*status_code) == 304) {
-        return NULL;
+        return 1;
     }
 
     /* Get content length and check if there is a body */
     int content_length = atoi(response_fields->search(response_fields, "content-length"));
     *body_length = content_length;
     if(content_length == 0) {
-        return NULL;
-    }
-    content_length += 4; // if there exists a body, then add safety bytes
-
-    char* body = malloc(content_length);
-
-    int acumulate_byte = 0;
-    while(acumulate_byte < content_length) {
-        int rv;
-        if((rv = recv(sock, body, content_length, 0)) < 0) {
-            printf("read response body fail\n");
-            exit(1);
-        }
-
-        if(rv == 0) break;
-        acumulate_byte += rv;
+        return 1;
     }
 
-    return body;
+    *body = malloc(content_length + 4);
+
+    if(inbuf > 2) memmove(*body, buf, inbuf); // if there's any data in buf
+
+    if(recv_message(sock, *body + inbuf, content_length - inbuf) == -1) {
+        return -1;
+    }
+
+    return 1;
 }
 
 // Process data for any header that's not a CONNECT method
@@ -439,7 +446,7 @@ char* process_body(struct linkedlist* header_fields, int sock, int* req_body_len
         int rv;
 
         // if 0 then it's disconnected not error
-        if((rv = recv(sock, buffer, buffer_len, 0)) < 0) {
+        if((rv = recv(sock, buffer, content_length, 0)) < 0) {
             printf("recv error\n");
             return NULL;
         }
