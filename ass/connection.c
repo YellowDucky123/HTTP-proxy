@@ -36,6 +36,7 @@ int process_data(
 char* responseHeader(int sock, int* status_code, struct linkedlist* response_fields);
 char* responseBody(int sock, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length);
 int requestMethodWord(char* method); 
+int transferEncoding(int sfd, int client_socket);
 
 int Connect(int client_sock, char* absolute_form) {
     char* colon = strchr(absolute_form, ':');
@@ -47,8 +48,8 @@ int Connect(int client_sock, char* absolute_form) {
     int port = atoi(colon + 1);
 
     /* Error */
-    char res[200];
-    sprintf(res, 
+    char error[200];
+    sprintf(error, 
         "HTTP/1.1 400 Bad Request\r\n"
         "Server: Proxy-Kelvin\r\n"
         "Date: %s\r\n"
@@ -57,7 +58,7 @@ int Connect(int client_sock, char* absolute_form) {
         ctime(&currentTime)
     );
     if(port != 443) {
-        write(client_sock, res, strlen(res));
+        write(client_sock, error, strlen(error));
         return -1;
     }
 
@@ -65,7 +66,7 @@ int Connect(int client_sock, char* absolute_form) {
 
     int sfd = getSocketFD(host); // Connect to server
     if(sfd == -1) {
-        write(client_sock, res, strlen(res));
+        write(client_sock, error, strlen(error));
         return -1;
     }
 
