@@ -38,7 +38,7 @@ int responseBody(int sock, char* buf, int inbuf, struct linkedlist* response_fie
 int requestMethodWord(char* method); 
 int transferEncoding(int sfd, int client_socket);
 
-int Connect(int client_sock, char* absolute_form) {
+int ConnectTunnel(int client_sock, char* absolute_form) {
     char* colon = strchr(absolute_form, ':');
     *colon = 0; // NULL
 
@@ -58,14 +58,16 @@ int Connect(int client_sock, char* absolute_form) {
         ctime(&currentTime)
     );
     if(port != 443) {
+        printf(">ERROR: Port number not supported for CONNECT HTTPS Tunnel, only supports 443\n");
         send(client_sock, error, strlen(error), 0);
         return -1;
     }
 
     printf("> establishing CONNECT tunnel to %s:%d\n", host, port);
 
-    int sfd = getSocketFD(host); // Connect to server
+    int sfd = getSocketFD(host, "https"); // Connect to server
     if(sfd == -1) {
+        printf(">ERROR: Tunnel failed\n");
         send(client_sock, error, strlen(error), 0);
         return -1;
     }
@@ -88,7 +90,8 @@ int ConnectMethodServerConnection(int client_sock, int sfd) {
     fd_set read_fds;
 
     while(1) {
-        char buffer[4096];
+        int buf_len = 4096;
+        char buffer[buf_len];
 
         FD_ZERO(&read_fds);
         FD_SET(client_sock, &read_fds);
@@ -101,29 +104,37 @@ int ConnectMethodServerConnection(int client_sock, int sfd) {
         }
 
         if(FD_ISSET(client_sock, &read_fds)) {
-            int rv = recv(client_sock, buffer, 2048, 0);
+            int rv = recv(client_sock, buffer, buf_len, 0);
             if(rv < 0) {
                 perror("recv CONNECT fail");
                 close(sfd);
                 return -1;                
             }
 
-            if(rv == 0) break;
-
+            if(rv == 0) {
+                printf("----> Client disconnected from Tunnel\n");
+                break;
+            }
+            // send(sfd, buffer, rv, 0);
             send_message(sfd, buffer, rv);
+            printf("----> CONNECT tunnelled client -> Server\n");
         }
 
         if(FD_ISSET(sfd, &read_fds)) {
-            int rv = recv(sfd, buffer, 2048, 0);
+            int rv = recv(sfd, buffer, buf_len, 0);
             if(rv < 0) {
                 perror("recv CONNECT fail");
                 close(sfd);
                 return -1;                
             }
 
-            if(rv == 0) break;
-
+            if(rv == 0) {
+                printf("----> Server disconnected from Tunnel\n");
+                break;
+            }
+            // send(sfd, buffer, rv, 0);
             send_message(client_sock, buffer, rv);
+            printf("----> CONNECT tunnelled Server -> Client\n");
         }
     }
     close(sfd);
@@ -158,7 +169,7 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     char* host = header_fields.search(&header_fields, "Host");
 
     printf("Proxy connected to server\n");
-    int sfd = getSocketFD(host);    // Connect to host
+    int sfd = getSocketFD(host, "http");    // Connect to host
     if(sfd == -1) {
         printf(">ERROR: socket not found\n");
         return -1;

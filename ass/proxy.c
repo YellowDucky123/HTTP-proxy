@@ -11,8 +11,6 @@
 #include "connection.h"
 #include "linkedlist.h"
 
-#define CONNECT_NOT_INITIATED -2
-
 int PORT;
 int timeout_duration;
 int max_object_size;
@@ -125,10 +123,8 @@ void* handle_client(void* sock) {
 	/* Set as nonblocking */
 	fcntl(client_socket, F_SETFL, O_NONBLOCK);
 
-	int sfd = CONNECT_NOT_INITIATED; // to keep socket to server for CONNECT
-
 	int keep_alive = 1;
-	while(keep_alive) {
+	while(keep_alive != -1) {
 		fd_set read_fds;
 		struct timeval timeout;
 
@@ -154,8 +150,6 @@ void* handle_client(void* sock) {
 			continue;
 		}
 
-		printf("-- Select fd socket\n");
-
 		int buffer_len = 8200;
 		char buffer[buffer_len];
 		int inbuf_used = 0;
@@ -169,10 +163,13 @@ void* handle_client(void* sock) {
 		}
 
 		if(rv == 0) {
-			printf("--> Client disconnected from proxy <--\n\n");
+			printf("--> Client %s:%d disconnected from proxy <--\n\n", client_host, client_port);
 			return NULL;
 		}
 		inbuf_used += rv;
+
+		printf("--> Request from %s:%d\n", client_host, client_port);
+		printf("-- Select fd socket\n");
 
 		printf("request - %s\n", buffer);
 
@@ -199,20 +196,18 @@ void* handle_client(void* sock) {
 		buffer[inbuf_used] = 0;
 
 		// If CONNECT method is invoked and NOT initiated
-		if(strcmp(method, "CONNECT") == 0 && sfd == CONNECT_NOT_INITIATED) {
-			sfd = Connect(client_socket, absolute_form);
+		if(strcmp(method, "CONNECT") == 0) {
+			int sfd = ConnectTunnel(client_socket, absolute_form);
+			if(sfd != -1) {
+				/* if CONNECT IS initiated */
+				ConnectMethodServerConnection(client_socket, sfd);
+			}
 			free(method);
 			free(absolute_form);
-			continue;
-		} 
-
-		/* if CONNECT IS initiated */
-		if(sfd != CONNECT_NOT_INITIATED) {
-			int c = ConnectMethodServerConnection(client_socket, sfd);
-			free(method);
-			free(absolute_form);
+			close(sfd);
+			printf("--> CONNECT Tunnel ended\n\n");
 			break;
-		}
+		} 
 
 		keep_alive = ServerConnection(
 			client_socket, 
@@ -223,11 +218,6 @@ void* handle_client(void* sock) {
 			&inbuf_used
 		);
 
-		if(keep_alive == -1) {
-			free(method);
-			free(absolute_form);
-			break;
-		}
 		free(method);
 		free(absolute_form);
 	}

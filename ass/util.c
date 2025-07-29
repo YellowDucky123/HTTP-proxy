@@ -23,7 +23,8 @@ char* proxy_header_factory(struct linkedlist* header_fields);
 int process_body(struct linkedlist* header_fields, int sock, char** body_buffer, char* buffer, int* inbuf, int* req_body_length);
 char* skipLeadingWhitespace(char* str);
 
-int getSocketFD(char* host) {
+/* type is either HTTP or HTTPS */
+int getSocketFD(char* host, char* type) {
     printf("Connecting to - %s\n", host);
 
     struct addrinfo hints;
@@ -36,7 +37,7 @@ int getSocketFD(char* host) {
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = 0;
 
-    int s = getaddrinfo(host, "http", &hints, &result);
+    int s = getaddrinfo(host, type, &hints, &result);
     if (s != 0) {
         printf("ERROR - getaddrinfo: %s\n", gai_strerror(s));
         return -1;

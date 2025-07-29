@@ -2,7 +2,7 @@
 #define UTIL_H
 
 // Connects to a host and returns the socket file descriptor
-int getSocketFD(char* host);
+int getSocketFD(char* host, char* type);
 
 /*
 the function will at the end have inbuf_used repurposed for the bytes left inside buffer after header

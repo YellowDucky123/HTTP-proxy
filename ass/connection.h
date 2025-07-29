@@ -12,7 +12,7 @@ typedef struct request_info {
     int content_length;
 } request_info;
 
-int Connect(int client_sock, char* absolute_form);
+int ConnectTunnel(int client_sock, char* absolute_form);
 
 // used to tunnel after CONNECT has been established
 // returns -1 if ERROR
