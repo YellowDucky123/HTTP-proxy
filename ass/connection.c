@@ -58,7 +58,7 @@ int Connect(int client_sock, char* absolute_form) {
         ctime(&currentTime)
     );
     if(port != 443) {
-        write(client_sock, error, strlen(error));
+        send(client_sock, error, strlen(error), 0);
         return -1;
     }
 
@@ -66,7 +66,7 @@ int Connect(int client_sock, char* absolute_form) {
 
     int sfd = getSocketFD(host); // Connect to server
     if(sfd == -1) {
-        write(client_sock, error, strlen(error));
+        send(client_sock, error, strlen(error), 0);
         return -1;
     }
 
@@ -74,13 +74,14 @@ int Connect(int client_sock, char* absolute_form) {
     sprintf(res, 
         "HTTP/1.1 200 Connection Established\r\n\r\n"
     );
-    write(client_sock, res, strlen(res));  // send 200 response to client
+    send(client_sock, res, strlen(res), 0);  // send 200 response to client
+    printf("--> CONNECT tunnel to %s:%d - Established\n", host, port);
 
     return sfd;
 }
 
 int ConnectMethodServerConnection(int client_sock, int sfd) {
-    printf(">-- Using CONNECT Tunnel to send request\n");
+    printf("--> Using CONNECT Tunnel to send request\n");
 
     int maxfd = ((sfd > client_sock) ? sfd : client_sock) + 1;
 

@@ -169,7 +169,7 @@ void* handle_client(void* sock) {
 		}
 
 		if(rv == 0) {
-			printf("client disconnected from proxy\n\n");
+			printf("--> Client disconnected from proxy <--\n\n");
 			return NULL;
 		}
 		inbuf_used += rv;
