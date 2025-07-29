@@ -23,8 +23,8 @@
 #define CONNECT 4
 
 char* proxy_header_factory(struct linkedlist* header_fields);
-char* process_body(struct linkedlist* header_fields, int sock, int* req_body_length);
-int process_data(
+int process_body(struct linkedlist* header_fields, int sock, char** body_buffer, char* buffer, int* inbuf, int* req_body_length);
+int process_request_header(
     struct linkedlist* header_fields, 
     int sock, char* method, 
     char* absolute_form, 
@@ -133,7 +133,7 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     struct linkedlist header_fields = linkedListConstructor();
     int requestMethod = requestMethodWord(method);
 
-    int validity = process_data(&header_fields, sock, method, absolute_form, buffer, buffer_len, inbuf_used);
+    int validity = process_request_header(&header_fields, sock, method, absolute_form, buffer, buffer_len, inbuf_used);
     printf("data processed\n");
     if(validity == -1) {
         printf("data not valid\n");
@@ -158,11 +158,18 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
     printf("Proxy connected to server\n");
     int sfd = getSocketFD(host);    // Connect to host
+    if(sfd == -1) {
+        printf(">ERROR: socket not found\n");
+        return -1;
+    }
 
-    char* proxy_header = proxy_header_factory(&header_fields);
-
+    char* proxy_header;
     int req_body_length;
-    char* body = process_body(&header_fields, sfd, &req_body_length);
+    char* body;
+    int rs = proxyMessageSend(&proxy_header, &body, &header_fields, sfd, buffer, inbuf_used, &req_body_length);
+    if(rs == -1) {
+        return -1;
+    }
 
     send(sfd, proxy_header, strlen(proxy_header), 0);
     printf("proxy sent request header -\n%s - to server: %s\n", proxy_header, host);
@@ -327,7 +334,7 @@ int responseBody(int sock, char* buf, int inbuf,
 
     *body = malloc(content_length + 4);
 
-    if(inbuf > 2) memmove(*body, buf, inbuf); // if there's any data in buf
+    if(inbuf > 0) memmove(*body, buf, inbuf); // if there's any data in buf
 
     if(recv_message(sock, *body + inbuf, content_length - inbuf) == -1) {
         return -1;
@@ -337,7 +344,7 @@ int responseBody(int sock, char* buf, int inbuf,
 }
 
 // Process data for any header that's not a CONNECT method
-int process_data(
+int process_request_header(
     struct linkedlist* header_fields, 
     int sock, char* method, 
     char* absolute_form, 
@@ -388,73 +395,6 @@ int process_data(
     /* Only read until end of header "\r\n" */
     return process_header_data(sock, header_fields, buffer, buffer_len, inbuf_used);
 }
-
-
-/* To make the new proxy request header */
-char* proxy_header_factory(struct linkedlist* header_fields) {
-    header_fields->insert(header_fields, "Connection", "close");
-    // header_fields->insert(header_fields, "Via", "1.1 z5489321");
-    header_fields->delete(header_fields, "proxy-connection");
-
-    /* get header size */
-    size_t header_len = 5; // an extra 5 bytes to be safe
-    for(node* it = header_fields->head; it != NULL; it = it->next) {
-        header_len += strlen(it->key) + 2 + strlen(it->value) + 2 + 1;
-    }
-
-    /* allocate memory for header block */
-    char* proxy_header = malloc(header_len + 1);
-    if(!proxy_header) {
-        printf("header allocation failed!\n");
-    }
-
-    /* put header in header block */
-    size_t offset;
-
-    char* top = header_fields->search(header_fields, "top");
-    offset = sprintf(proxy_header, "%s", top);  // the "top line" already has "\r\n", look at proxy.c
-    header_fields->delete(header_fields, "top");
-
-    for(node* it = header_fields->head; it != NULL; it = it->next) {
-        int written = sprintf(proxy_header + offset, "%s: %s\r\n", it->key, it->value);
-        offset += written;
-    }
-    sprintf(proxy_header + offset, "\r\n");
-
-    return proxy_header;
-}
-
-// to process the request body returns buffer containing body
-char* process_body(struct linkedlist* header_fields, int sock, int* req_body_length) {
-    char* str_content_length = header_fields->search(header_fields, "Content-Length");
-    if(str_content_length == NULL) {
-        return NULL;
-    }
-
-    int content_length = atoi(str_content_length);
-    *req_body_length = content_length;
-
-    if(content_length == 0) {
-        return NULL;
-    }
-
-    int buffer_len = content_length + 10;
-    char* buffer = malloc(buffer_len);
-
-    int accumulate_byte = 0;
-    while(accumulate_byte < content_length) {
-        int rv;
-
-        // if 0 then it's disconnected not error
-        if((rv = recv(sock, buffer, content_length, 0)) < 0) {
-            printf("recv error\n");
-            return NULL;
-        }
-        accumulate_byte += rv;
-    }
-    return buffer;
-}
-
 
 int requestMethodWord(char* method) {
     if(strcasecmp(method, "HEAD") == 0) {

@@ -30,7 +30,7 @@ int recv_message(int sock, char* body, int content_length);
 /* returns true or false (1 or 0) */
 int isChunkedTransferEncoding(struct linkedlist* response_fields);
 
-// int receive_response(int sock, int* status_code, 
-//     struct linkedlist* response_fields, int* request_method, int* body_length, char** body);
+int proxyMessageSend(char** header, char** body, 
+    struct linkedlist* header_fields, int sfd, char* buf, int* inbuf_used, int* req_body_length);
 
 #endif

@@ -18,6 +18,9 @@
 #define POST 3
 #define CONNECT 4
 
+
+char* proxy_header_factory(struct linkedlist* header_fields);
+int process_body(struct linkedlist* header_fields, int sock, char** body_buffer, char* buffer, int* inbuf, int* req_body_length);
 char* skipLeadingWhitespace(char* str);
 
 int getSocketFD(char* host) {
@@ -45,7 +48,7 @@ int getSocketFD(char* host) {
         and) try the next address. 
     */
     for (rp = result; rp != NULL; rp = rp->ai_next) {
-        printf("-- trying socket\n");
+        printf("-- trying sockets\n");
         sfd = socket(rp->ai_family, rp->ai_socktype,
                     rp->ai_protocol);
         if (sfd == -1)
@@ -203,113 +206,78 @@ int isChunkedTransferEncoding(struct linkedlist* response_fields) {
     return 0;
 }
 
-// int receive_response(int sock, int* status_code, 
-//     struct linkedlist* response_fields, int* request_method, char** header, int* body_length, char** body) {
-    
-//     char* respond_buffer = NULL;
-//     int inbuf;
-//     *header = responseHeader(sock, &respond_buffer, &inbuf, status_code, response_fields);
-//     if(*header == NULL) {
-//         return -1;
-//     }
+int proxyMessageSend(char** header, char** body, 
+    struct linkedlist* header_fields, int sfd, char* buf, int* inbuf_used, int* req_body_length) {
+    *header = proxy_header_factory(header_fields);
 
-//     if(inbuf > 0) {
-//         *body = respond_buffer;
-//     }
-
-//     int b = responseBody(sock, response_fields, request_method, status_code, body_length, body);
-//     if(b == -1) {
-//         return -1;
-//     }
-// }
-
-// /* Receive response from server and forward to client */
-// char* responseHeader(int sock, char** buf, int *inbuf, int* status_code, struct linkedlist* response_fields) {
-//     int respond_buffer_len = 1024;
-//     *buf = malloc(respond_buffer_len);
-//     char* respond_buffer = *buf;
-
-//     int inbuf_used = 0;
-//     int rv;
-//     if((rv = recv(sock, respond_buffer, respond_buffer_len, 0)) < 0) {
-//         printf("ERROR: recv response failed!\n");
-//         return NULL;
-//     }
-
-//     inbuf_used = rv;
-
-//     char* line_start = respond_buffer;
-//     char* line_end;
-
-//     /* Parse the response line */
-//     line_end = (char*)memchr((void*)line_start, '\n', inbuf_used - (line_start - respond_buffer));
-//     *line_end = 0;  // NULL
-
-//     char* space1 = strchr(line_start, ' ');
-//     char* space2 = strchr(space1 + 1, ' ');
-//     *space2 = 0;
-//     char* status_code_str = strdup(space1 + 1);
-//     char* status_message = strdup(space2 + 1);
-
-//     *status_code = atoi(status_code_str);
-
-//     line_start = line_end + 1;
-//     inbuf_used -= (line_start - respond_buffer);
-//     memmove(respond_buffer, line_start, inbuf_used);
-//     respond_buffer[inbuf_used] = 0;
-
-//     /* Parse the response headers */
-//     process_header_data(sock, response_fields, respond_buffer, respond_buffer_len, &inbuf_used);
-//     *inbuf = inbuf_used;
-//     response_fields->insert(response_fields, "Via", "1.1 z5489321");
- 
-//     /* Make the header */
-//     size_t bytes = strlen(status_code_str) + strlen(status_message) + 10 + 5;   // padding bytes
-//     for(node* it = response_fields->head; it != NULL; it = it->next) {
-//         bytes += strlen(it->key) + 2 + strlen(it->value) + 2 + 1;
-//     }
-
-//     char* return_buffer = malloc(bytes + 1);
-
-//     printf("> status code: %s | status message: %s\n", status_code_str, status_message);
-
-//     int offset = sprintf(return_buffer, "HTTP/1.1 %s %s\r\n", status_code_str, status_message);
-//     for(node* it = response_fields->head; it != NULL; it = it->next) {
-//         int written = sprintf(return_buffer + offset, "%s: %s\r\n", it->key, it->value);
-//         offset += written;
-//     }
-//     sprintf(return_buffer + offset, "\r\n");
-
-//     free(status_code_str);
-//     free(status_message);
-//     return return_buffer;
-// }
-
-
-// int responseBody(int sock, 
-//     struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body) {
-//     if((*request_method) == HEAD || (*status_code) == 204 || (*status_code) == 304) {
-//         return 1;
-//     }
-
-//     /* Get content length and check if there is a body */
-//     int content_length = atoi(response_fields->search(response_fields, "content-length"));
-//     *body_length = content_length;
-//     if(content_length == 0) {
-//         return 1;
-//     }
-    
-//     // if a body buffer does not exist yet, make one
-//     *body = (*body == NULL) ? malloc(content_length) : *body;
-
-//     if(recv_message(sock, *body, content_length) == -1) {
-//         return -1;
-//     }
-
-//     return 1;
-// }
+    if(process_body(header_fields, sfd, body, buf, inbuf_used, req_body_length) == -1) {
+        return -1;
+    }
+    return 1;
+}
 
 /* - private - */
+
+/* To make the new proxy request header */
+char* proxy_header_factory(struct linkedlist* header_fields) {
+    header_fields->insert(header_fields, "Connection", "close");
+    // header_fields->insert(header_fields, "Via", "1.1 z5489321");
+    header_fields->delete(header_fields, "proxy-connection");
+
+    /* get header size */
+    size_t header_len = 5; // an extra 5 bytes to be safe
+    for(node* it = header_fields->head; it != NULL; it = it->next) {
+        header_len += strlen(it->key) + 2 + strlen(it->value) + 2 + 1;
+    }
+
+    /* allocate memory for header block */
+    char* proxy_header = malloc(header_len + 1);
+    if(!proxy_header) {
+        printf("header allocation failed!\n");
+    }
+
+    /* put header in header block */
+    size_t offset;
+
+    char* top = header_fields->search(header_fields, "top");
+    offset = sprintf(proxy_header, "%s", top);  // the "top line" already has "\r\n", look at proxy.c
+    header_fields->delete(header_fields, "top");
+
+    for(node* it = header_fields->head; it != NULL; it = it->next) {
+        int written = sprintf(proxy_header + offset, "%s: %s\r\n", it->key, it->value);
+        offset += written;
+    }
+    sprintf(proxy_header + offset, "\r\n");
+
+    return proxy_header;
+}
+
+// to process the request body returns buffer containing body
+int process_body(struct linkedlist* header_fields, int sock, char** body_buffer, char* buffer, int* inbuf, int* req_body_length) {
+    *body_buffer = NULL;
+    char* str_content_length = header_fields->search(header_fields, "Content-Length");
+    if(str_content_length == NULL) {
+        return 1;
+    }
+
+    int content_length = atoi(str_content_length);
+    *req_body_length = content_length;
+
+    if(content_length == 0) {
+        return 1;
+    }
+
+    int buffer_len = content_length + 10;
+    *body_buffer = malloc(buffer_len);
+    if(inbuf > 0) memmove(*body_buffer, buffer, *inbuf);
+
+    if(recv_message(sock, *body_buffer + *inbuf, content_length - *inbuf) == -1) {
+        printf("ERROR: recv request body failed\n");
+        return -1;
+    }
+
+    return 1;
+}
 
 char* skipLeadingWhitespace(char* str) {
     while(isspace((unsigned char)*str)) {
