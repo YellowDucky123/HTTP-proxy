@@ -189,8 +189,9 @@ int recv_message(int sock, char* body, int content_length) {
 }
 
 int isChunkedTransferEncoding(struct linkedlist* response_fields) {
-    char* val = response_fields->search(response_fields, "transfer-encoding");
-    if(val == NULL) return 0;
+    char* val_original = response_fields->search(response_fields, "transfer-encoding");
+    if(val_original == NULL) return 0;
+    char* val = strdup(val_original);
 
     printf(">Transfer-Encoding: %s\n", val);
 

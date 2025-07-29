@@ -36,7 +36,7 @@ int process_request_header(
 char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, struct linkedlist* response_fields);
 int responseBody(int sock, char* buf, int inbuf, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body);
 int requestMethodWord(char* method); 
-int transferEncoding(int sfd, int client_socket);
+int transferEncoding(int sfd, int client_socket, char* buf, int inbuf);
 
 int ConnectTunnel(int client_sock, char* absolute_form) {
     char* colon = strchr(absolute_form, ':');
@@ -202,23 +202,24 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
     printf("\nresponse header -\n%s\n", response_header);
 
+    send_message(sock, response_header, strlen(response_header));
+    free(response_header);
+
     /* IF CHUNKED ENCODING */
     if(isChunkedTransferEncoding(&response_fields)) {
-        if(transferEncoding(sfd, sock) == - 1) {
-            /* clearing up the fields */
-            close(sfd);
-            header_fields.destroyList(&header_fields);
-            response_fields.destroyList(&response_fields);
-
-            return -1;
+        int ret = conn_status;
+        if(transferEncoding(sfd, sock, buf, inbuf) == - 1) {
+            ret = -1;
         }
+
+        printf("-> Transfer-Encoding finished\n");
         
         /* clearing up the fields */
         close(sfd);
         header_fields.destroyList(&header_fields);
         response_fields.destroyList(&response_fields);
 
-        return conn_status;
+        return ret;
     }
 
     /* GO HERE IF NOT CHUNKED ENCODING */
@@ -233,8 +234,6 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
     printf("Response body -\n%s\n", response_body);
 
-    write(sock, response_header, strlen(response_header));
-    free(response_header);
     if(response_body) {
         send_message(sock, response_body, body_length);
         free(response_body);
@@ -249,7 +248,13 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 }
 
 /* transfer encoding logic, if return 0, something is weird */
-int transferEncoding(int sfd, int client_socket) {
+int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
+    printf("> Start transfer encoding\n");
+
+    if(inbuf > 0) {
+        send_message(client_socket, buf, inbuf);
+    }
+
     while(1) {
         int buffer_len = 2048;
         char buffer[buffer_len];
