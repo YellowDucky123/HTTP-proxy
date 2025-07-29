@@ -61,13 +61,12 @@ int main(int argc, char** argv) {
 	}
 
 	//Listen on socket
-	if(listen(listen_sock, 10) < 0) {
+	if(listen(listen_sock, 50) < 0) {
 		printf("could not open socket!\n");
 		close(listen_sock);
 		return 1;
 	}
 
-	
 	//Accept and incoming connection
 	puts("Waiting for incoming connections...");
 	while(1) {
