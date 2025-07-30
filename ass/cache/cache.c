@@ -41,10 +41,17 @@ int insert_cache(struct cache* cache, char* request_line, int status_code, char*
     r.status_code = status_code;
     r.b_len = body_len;
     r.h_len = header_len;
-    r.body = malloc(body_len);
+
+    if(body != NULL) {
+        r.body = malloc(body_len);
+        memcpy(r.body, body, body_len);
+    } else {
+        r.body = NULL;
+    }
+    
     r.header = malloc(header_len);
     memcpy(r.header, header, header_len);
-    memcpy(r.body, body, body_len);
+    
 
     printf("cache size %d\n", cache->curr_size);
     cache->dll = insertAtFront(cache->dll, key, r);
