@@ -251,9 +251,21 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
     printf("> Start transfer encoding\n");
 
+    int body_len = 0;
+    int body_size = 2048;
+    char* final_body = malloc(body_size);
+
     if(inbuf > 0) {
-        send_message(client_socket, buf, inbuf);
+        int a = appendToBuffer(&final_body, &body_len, &body_size, buf, inbuf);
+        if(a != 1) {
+            printf("ERROR: Transfer Encoding error\n");
+            return -1;
+        }
     }
+
+    // if(inbuf > 0) {
+    //     send_message(client_socket, buf, inbuf);
+    // }
 
     while(1) {
         int buffer_len = 2048;
@@ -266,13 +278,19 @@ int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
 
         /* If it's 0 then server disconnected */
         if(rv == 0) {
-            return 1;
+            break;
         }
 
-        send_message(client_socket, buffer, rv);
+        int a = appendToBuffer(&final_body, &body_len, &body_size, buffer, rv);
+        if(a != 1) {
+            printf("ERROR: Transfer Encoding error\n");
+            return -1;
+        }
     }
 
-    return 0;
+    send_message(client_socket, final_body, body_len);
+
+    return 1;
 }
 
 /* Receive response from server and forward to client */

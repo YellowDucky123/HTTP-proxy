@@ -33,4 +33,6 @@ int isChunkedTransferEncoding(struct linkedlist* response_fields);
 int proxyMessageSend(char** header, char** body, 
     struct linkedlist* header_fields, int sfd, char* buf, int* inbuf_used, int* req_body_length);
 
+int appendToBuffer(char** buf, int* offset, int* buf_size, char* string, int string_size);
+
 #endif

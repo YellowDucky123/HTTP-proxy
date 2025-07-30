@@ -218,6 +218,23 @@ int proxyMessageSend(char** header, char** body,
     return 1;
 }
 
+int appendToBuffer(char** buf, int* offset, int* buf_size, char* string, int string_size) {
+    while(string_size > *buf_size - *offset) {
+        *buf_size += 2048;
+        char* new_buf = realloc(*buf, *buf_size);
+        if(!new_buf) {
+            printf(">ERROR: Realloc failed\n");
+            return -1;
+        }
+        *buf = new_buf;
+    }
+
+    memmove(*buf + *offset, string, string_size);
+    *offset += string_size;
+
+    return 1;
+}
+
 /* - private - */
 
 /* To make the new proxy request header */
