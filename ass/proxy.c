@@ -10,15 +10,22 @@
 #include <netinet/in.h>	
 #include "connection.h"
 #include "linkedlist.h"
+#include "cache/cache.h"
+#include "util.h"
 
 int PORT;
 int timeout_duration;
 int max_object_size;
 int max_cache_size;
+static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void process_connect_data(int sock, char* host, char* Proxy_auth);
-void* handle_client(void* sock);
+void* handle_client(void* thread_data);
 
+struct client_thread_data {
+	cache* cache;
+	int client_sock;
+};
 
 int main(int argc, char** argv) {
 	if (argc != 5) {
@@ -67,6 +74,8 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
+	cache* cache = cache_construct(max_cache_size, max_object_size);
+
 	//Accept and incoming connection
 	puts("Waiting for incoming connections...");
 	while(1) {
@@ -86,8 +95,13 @@ int main(int argc, char** argv) {
             continue;
         }
 
+		struct client_thread_data* thread_data = malloc(sizeof(struct client_thread_data));
+		thread_data->cache = cache;
+		thread_data->client_sock =  *client_sock;
+		free(client_sock);
+
 		pthread_t client_thread;
-		if(pthread_create(&client_thread, NULL, handle_client, (void*)client_sock) != 0) {
+		if(pthread_create(&client_thread, NULL, handle_client, (void*)(thread_data)) != 0) {
 			perror("pthread_create");
             close(*client_sock);
             free(client_sock);
@@ -98,9 +112,10 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
-void* handle_client(void* sock) {
-	int client_socket = *(int *) sock;
-	free(sock);
+void* handle_client(void* thread_data) {
+	struct client_thread_data* proxy_client_data = (struct client_thread_data *)thread_data;
+	int client_socket = proxy_client_data->client_sock;
+	cache* cache = proxy_client_data->cache;
 
 	struct sockaddr_in client_address;
 	socklen_t client_address_len = sizeof(client_address);
@@ -194,6 +209,31 @@ void* handle_client(void* sock) {
 		memmove(buffer, line_start, inbuf_used);
 		buffer[inbuf_used] = 0;
 
+
+		/* Check of cache if GET */
+		if(strcasecmp(method, "GET") == 0) {
+			printf(">Checking cache\n");
+			pthread_mutex_lock(&stats_lock);
+			
+			res* r = get_cache(cache, absolute_form);
+			printf("---\n");
+			if(r != NULL) {
+				printf("127.0.0.1 %d --> cache hit\n", PORT);
+				printf("127.0.0.1 %d r->header: %s\n", r->header);
+				printf("127.0.0.1 %d h_len %d\n", r->h_len);
+				printf("127.0.0.1 %d b->header: %s\n", r->body);
+				printf("127.0.0.1 %d b_len %d\n", r->b_len);
+				send_message(client_socket, r->header, r->h_len);
+				send_message(client_socket, r->body, r->b_len);
+				printf("127.0.0.1 %d -->> cached response sent");
+				pthread_mutex_unlock(&stats_lock);
+				printf("127.0.0.1 %d H []")
+				break;
+			} 
+			pthread_mutex_unlock(&stats_lock);
+		}
+		printf("127.0.0.1 %d >cache did not hit\n");
+
 		// If CONNECT method is invoked and NOT initiated
 		if(strcmp(method, "CONNECT") == 0) {
 			int sfd = ConnectTunnel(client_socket, absolute_form);
@@ -205,6 +245,7 @@ void* handle_client(void* sock) {
 			free(absolute_form);
 			close(sfd);
 			printf("--> CONNECT Tunnel ended\n\n");
+			printf("--> Client %s:%d disconnected from proxy <--\n\n", client_host, client_port);
 			break;
 		} 
 
@@ -214,7 +255,8 @@ void* handle_client(void* sock) {
 			absolute_form,  
 			buffer, 
 			buffer_len, 
-			&inbuf_used
+			&inbuf_used,
+			cache
 		);
 
 		free(method);

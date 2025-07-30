@@ -48,16 +48,16 @@ int getSocketFD(char* host, char* type) {
         If socket(2) (or connect(2)) fails, we (close the socket
         and) try the next address. 
     */
+    char ip_str[INET_ADDRSTRLEN];
     for (rp = result; rp != NULL; rp = rp->ai_next) {
-        printf("-- trying sockets\n");
         sfd = socket(rp->ai_family, rp->ai_socktype,
                     rp->ai_protocol);
         if (sfd == -1)
             continue;
+    
         
-        // Set the TCP socket to non-blocking mode
-        // fcntl(sfd, F_SETFL, O_NONBLOCK);
-
+        inet_ntop(AF_INET, &(((struct sockaddr_in *)rp->ai_addr)->sin_addr), ip_str, sizeof(ip_str));
+        printf("-- Trying socket IPv4: %s\n", ip_str);
         if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
             break;                  /* Success */
 
@@ -233,6 +233,37 @@ int appendToBuffer(char** buf, int* offset, int* buf_size, char* string, int str
     *offset += string_size;
 
     return 1;
+}
+
+void absoluteform_parser(char* absolute_form, char** hostname ,char** request_instruction) {
+    char* host_start; 
+    char* path_start;
+    if(strncasecmp(absolute_form, "http://", 7) == 0) {
+        host_start = absolute_form + 7;
+        path_start = strchr(host_start, '/');
+    }
+    else {
+        host_start = absolute_form;
+        path_start = strchr(host_start, '/');
+    }
+
+    if (path_start) {
+        // Temporarily null-terminate hostname
+        *path_start = 0;
+        *hostname = strdup(host_start);
+        printf("-------- %s\n", *hostname);
+
+        // restore the '/' character after processing
+        *path_start = '/';
+        // Path_start now points to the path starting with '/'
+        *request_instruction = path_start; 
+    
+    } else {
+        // No path: entire rest is hostname, path = "/"
+        *hostname = strdup(host_start);
+        *request_instruction = "/";
+    }
+    printf(">Finish parsing form\n");
 }
 
 /* - private - */

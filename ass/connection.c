@@ -15,6 +15,7 @@
 // custom includes
 #include "linkedlist.h"
 #include "util.h"
+#include "cache/cache.h"
 
 // 
 #define HEAD 1
@@ -33,10 +34,11 @@ int process_request_header(
     int* inbuf_used
 );
 
-char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields);
+char* responseHeader(int sock, char** buf, 
+    int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields, int *final_header_len);
 int responseBody(int sock, char* buf, int inbuf, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body);
 int requestMethodWord(char* method); 
-int transferEncoding(int sfd, int client_socket, char* buf, int inbuf);
+int transferEncoding(int sfd, int client_socket, char* buf, int inbuf, char** f_body, int *final_body_len);
 
 int ConnectTunnel(int client_sock, char* absolute_form) {
     char* colon = strchr(absolute_form, ':');
@@ -141,7 +143,8 @@ int ConnectMethodServerConnection(int client_sock, int sfd) {
     return 0;
 }
 
-int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, int buffer_len, int* inbuf_used) {
+int ServerConnection(int sock, char* method, char* absolute_form, 
+    char* buffer, int buffer_len, int* inbuf_used, cache* cache) {
     struct linkedlist header_fields = linkedListConstructor();
     int requestMethod = requestMethodWord(method);
 
@@ -171,12 +174,12 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     
     char* host = header_fields.search(&header_fields, "Host");
 
-    printf("Proxy connected to server\n");
     int sfd = getSocketFD(host, "http");    // Connect to host
     if(sfd == -1) {
         printf(">ERROR: socket not found\n");
         return -1;
     }
+    printf("-> Proxy connected to server\n");
 
     char* proxy_header;
     int req_body_length;
@@ -197,23 +200,29 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
 //-------------------------------------------------------------------------------------------
 
+    int header_len;
     struct linkedlist response_fields = linkedListConstructor();
     int status_code;
     int inbuf;
     char* buf;
-    char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, conn_status, &response_fields);
+    char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, conn_status, &response_fields, &header_len);
 
     printf("\nresponse header -\n%s\n", response_header);
 
     send_message(sock, response_header, strlen(response_header));
-    free(response_header);
 
     /* IF CHUNKED ENCODING */
     if(isChunkedTransferEncoding(&response_fields)) {
+        int body_len;
+        char* final_body;
         int ret = conn_status;
-        if(transferEncoding(sfd, sock, buf, inbuf) == - 1) {
+        if(transferEncoding(sfd, sock, buf, inbuf, &final_body, &body_len) == - 1) {
             ret = -1;
         }
+
+        insert_cache(cache, absolute_form, response_header, header_len, final_body, body_len);
+        free(final_body);
+        free(response_header);
 
         printf("-> Transfer-Encoding finished\n");
         
@@ -239,8 +248,11 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 
     if(response_body) {
         send_message(sock, response_body, body_length);
-        free(response_body);
     }
+
+    insert_cache(cache, absolute_form, response_header, header_len, response_body, body_length);
+    free(response_body);
+    free(response_header);
     
     /* clearing up the fields */
     close(sfd);
@@ -251,7 +263,7 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
 }
 
 /* transfer encoding logic, if return 0, something is weird */
-int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
+int transferEncoding(int sfd, int client_socket, char* buf, int inbuf, char** f_body, int *final_body_len) {
     printf("> Start transfer encoding\n");
 
     int body_len = 0;
@@ -288,13 +300,15 @@ int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
     }
 
     send_message(client_socket, final_body, body_len);
+    *f_body = final_body;
+    *final_body_len = body_len;
 
     return 1;
 }
 
 /* Receive response from server and forward to client */
 char* responseHeader(int sock, char** buf, 
-    int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields) {    
+    int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields, int *final_header_len) {    
     int respond_buffer_len = 1024;
     *buf = malloc(respond_buffer_len);
     char* respond_buffer = *buf;
@@ -357,6 +371,8 @@ char* responseHeader(int sock, char** buf,
     }
     sprintf(return_buffer + offset, "\r\n");
 
+    *final_header_len = offset + 2;
+
     free(status_code_str);
     free(status_message);
     return return_buffer;
@@ -398,31 +414,8 @@ int process_request_header(
     /* Gets hostname and request from absolute-form uri */
     char* possible_backup_hostname;
     char* request_instruction;
-    if(strncasecmp(absolute_form, "http://", 7) == 0) {
-        char* host_start = absolute_form + 7;
-        char* path_start = strchr(host_start, '/');
-        
-        if (path_start) {
-            // Temporarily null-terminate hostname
-            *path_start = 0;
-            possible_backup_hostname = strdup(host_start);
-            printf("-------- %s\n", possible_backup_hostname);
 
-            // restore the '/' character after processing
-            *path_start = '/';
-            // Path_start now points to the path starting with '/'
-            request_instruction = path_start; // Skip '/'
-        
-        } else {
-            // No path: entire rest is hostname, path = "/"
-            possible_backup_hostname = strdup(host_start);
-            request_instruction = "/";
-        }
-    }
-    else {
-        possible_backup_hostname = NULL;
-        request_instruction = absolute_form;
-    }
+    absoluteform_parser(absolute_form, &possible_backup_hostname, &request_instruction);
 
     char top[1024];
     sprintf(top, "%s %s HTTP/1.1\r\n", method, request_instruction);

@@ -1,6 +1,8 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#include "linkedlist.h"
+
 // Connects to a host and returns the socket file descriptor
 int getSocketFD(char* host, char* type);
 
@@ -34,5 +36,7 @@ int proxyMessageSend(char** header, char** body,
     struct linkedlist* header_fields, int sfd, char* buf, int* inbuf_used, int* req_body_length);
 
 int appendToBuffer(char** buf, int* offset, int* buf_size, char* string, int string_size);
+
+void absoluteform_parser(char* absolute_form, char** hostname ,char** request_instruction);
 
 #endif

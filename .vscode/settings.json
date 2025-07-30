@@ -9,6 +9,13 @@
         "utility": "c",
         "connection.h": "c",
         "stdio.h": "c",
-        "linkedlist.h": "c"
+        "linkedlist.h": "c",
+        "util.h": "c",
+        "stdlib.h": "c",
+        "lru.h": "c",
+        "cstdlib": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "vector": "c"
     }
 }

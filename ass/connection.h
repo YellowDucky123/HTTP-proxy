@@ -1,6 +1,9 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
+#include "cache/cache.h"
+#include "util.h"
+
 typedef struct request_info {
     int sock;
     char* method;
@@ -27,6 +30,7 @@ int ServerConnection(
     char* absolute_form, 
     char* buffer, 
     int buffer_len, 
-    int* inbuf_used);
+    int* inbuf_used,
+    cache* cache);
 
 #endif
