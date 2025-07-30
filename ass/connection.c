@@ -33,7 +33,7 @@ int process_request_header(
     int* inbuf_used
 );
 
-char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, struct linkedlist* response_fields);
+char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields);
 int responseBody(int sock, char* buf, int inbuf, struct linkedlist* response_fields, int* request_method, int* status_code, int* body_length, char** body);
 int requestMethodWord(char* method); 
 int transferEncoding(int sfd, int client_socket, char* buf, int inbuf);
@@ -153,19 +153,22 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     }
 
     /* Connection status: keep-alive / close */
+    int conn_exist = 1;
     char* conn_status_str = header_fields.search(&header_fields, "connection");
     if(conn_status_str == NULL) {
         conn_status_str = header_fields.search(&header_fields, "proxy-connection");
         /* conn_status_str is still NULL, then both connection and proxy-connection does not exist */
         if(conn_status_str == NULL) {
-            printf("connection/proxy-connection field does not exist in request header\n");
-            return -1;
+            conn_exist = 0;
         }
     }
 
     printf("> checking whether client wants to keep-alive client-proxy connection\n");
-    int conn_status = (strcasecmp(conn_status_str, "close") == 0) ? 0 : 1;
-
+    int conn_status = 1;
+    if(conn_exist) {
+        conn_status = (strcasecmp(conn_status_str, "close") == 0) ? 0 : 1;
+    } 
+    
     char* host = header_fields.search(&header_fields, "Host");
 
     printf("Proxy connected to server\n");
@@ -198,7 +201,7 @@ int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, 
     int status_code;
     int inbuf;
     char* buf;
-    char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, &response_fields);
+    char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, conn_status, &response_fields);
 
     printf("\nresponse header -\n%s\n", response_header);
 
@@ -263,10 +266,6 @@ int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
         }
     }
 
-    // if(inbuf > 0) {
-    //     send_message(client_socket, buf, inbuf);
-    // }
-
     while(1) {
         int buffer_len = 2048;
         char buffer[buffer_len];
@@ -294,7 +293,8 @@ int transferEncoding(int sfd, int client_socket, char* buf, int inbuf) {
 }
 
 /* Receive response from server and forward to client */
-char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, struct linkedlist* response_fields) {
+char* responseHeader(int sock, char** buf, 
+    int* buf_left, int* status_code, int conn_persistence, struct linkedlist* response_fields) {    
     int respond_buffer_len = 1024;
     *buf = malloc(respond_buffer_len);
     char* respond_buffer = *buf;
@@ -331,6 +331,14 @@ char* responseHeader(int sock, char** buf, int* buf_left, int* status_code, stru
     process_header_data(sock, response_fields, respond_buffer, respond_buffer_len, &inbuf_used);
     *buf_left = inbuf_used;
     response_fields->insert(response_fields, "Via", "1.1 z5489321");
+
+    if(conn_persistence) {
+        response_fields->insert(response_fields, "Connection", "keep-alive");
+        printf("-> Client connection: keep-alive\n");
+    } else {
+        response_fields->insert(response_fields, "Connection", "close");
+        printf("-> Client connection: close\n");
+    }
  
     /* Make the header */
     size_t bytes = strlen(status_code_str) + strlen(status_message) + 10 + 5;   // padding bytes
