@@ -39,4 +39,6 @@ int appendToBuffer(char** buf, int* offset, int* buf_size, char* string, int str
 
 void absoluteform_parser(char* absolute_form, char** hostname ,char** request_instruction);
 
+void logging(int PORT, int cache_hit, char* request_line, int status_code, int bytes);
+
 #endif

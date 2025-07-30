@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "linkedlist.h"
 
@@ -265,6 +266,17 @@ void absoluteform_parser(char* absolute_form, char** hostname ,char** request_in
     }
     printf(">Finish parsing form\n");
 }
+
+void logging(int PORT, char cache_hit, char* request_line, int status_code, int bytes) {
+    // Get time string
+    time_t now = time(NULL);
+    struct tm* t = localtime(&now);
+    char time_str[64];
+    strftime(time_str, sizeof(time_str), "[%d/%b/%Y:%H:%M:%S %z]", t);
+
+    printf("\n127.0.0.1 %d %c %s \"%s\" %d %d\n\n", PORT, cache_hit, time_str, request_line, status_code, bytes);
+}
+
 
 /* - private - */
 

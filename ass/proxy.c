@@ -186,6 +186,7 @@ void* handle_client(void* thread_data) {
 		printf("-- Select fd socket\n");
 
 		printf("request - %s\n", buffer);
+		char* request_line;
 
 		// get the method and full uri
 		char *line_start = buffer;
@@ -194,6 +195,8 @@ void* handle_client(void* thread_data) {
 		*line_end = 0;
 		*(line_end - 1) = 0;
 		printf("Request Line - %s\n", line_start);
+		request_line = strdup(line_start);
+
 		char* method = strdup(strtok(line_start, " "));
 		printf("method - %s\n", method);
 		if(method == NULL) {
@@ -219,27 +222,30 @@ void* handle_client(void* thread_data) {
 			printf("---\n");
 			if(r != NULL) {
 				printf("127.0.0.1 %d --> cache hit\n", PORT);
-				printf("127.0.0.1 %d r->header: %s\n", r->header);
-				printf("127.0.0.1 %d h_len %d\n", r->h_len);
-				printf("127.0.0.1 %d b->header: %s\n", r->body);
-				printf("127.0.0.1 %d b_len %d\n", r->b_len);
+				printf("127.0.0.1 %d r->header: %s\n", PORT, r->header);
+				printf("127.0.0.1 %d h_len %d\n", PORT, r->h_len);
+				printf("127.0.0.1 %d b->header: %s\n", PORT, r->body);
+				printf("127.0.0.1 %d b_len %d\n", PORT, r->b_len);
 				send_message(client_socket, r->header, r->h_len);
 				send_message(client_socket, r->body, r->b_len);
-				printf("127.0.0.1 %d -->> cached response sent");
+				printf("127.0.0.1 %d -->> cached response sent", PORT);
 				pthread_mutex_unlock(&stats_lock);
-				printf("127.0.0.1 %d H []")
+				logging(PORT, 'H', r->log, r->status_code, r->bytes);
 				break;
 			} 
 			pthread_mutex_unlock(&stats_lock);
 		}
-		printf("127.0.0.1 %d >cache did not hit\n");
+		printf("127.0.0.1 %d >cache did not hit\n", PORT);
 
 		// If CONNECT method is invoked and NOT initiated
 		if(strcmp(method, "CONNECT") == 0) {
 			int sfd = ConnectTunnel(client_socket, absolute_form);
 			if(sfd != -1) {
+				logging(PORT, '-', request_line, 200, 0);
 				/* if CONNECT IS initiated */
 				ConnectMethodServerConnection(client_socket, sfd);
+			} else {
+				logging(PORT, '-', request_line, 400, 0);
 			}
 			free(method);
 			free(absolute_form);
@@ -249,6 +255,9 @@ void* handle_client(void* thread_data) {
 			break;
 		} 
 
+		int status_code;
+		int bytes;
+
 		keep_alive = ServerConnection(
 			client_socket, 
 			method, 
@@ -256,8 +265,13 @@ void* handle_client(void* thread_data) {
 			buffer, 
 			buffer_len, 
 			&inbuf_used,
-			cache
+			cache,
+			&status_code,
+			&bytes,
+			request_line
 		);
+
+		logging(PORT, (strcasecmp(method, "GET") == 0) ? 'M' : '-', request_line, status_code, bytes);
 
 		free(method);
 		free(absolute_form);

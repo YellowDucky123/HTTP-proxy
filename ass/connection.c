@@ -144,7 +144,7 @@ int ConnectMethodServerConnection(int client_sock, int sfd) {
 }
 
 int ServerConnection(int sock, char* method, char* absolute_form, 
-    char* buffer, int buffer_len, int* inbuf_used, cache* cache) {
+    char* buffer, int buffer_len, int* inbuf_used, cache* cache, int* stat_code, int* bytes, char* request_line) {
     struct linkedlist header_fields = linkedListConstructor();
     int requestMethod = requestMethodWord(method);
 
@@ -206,6 +206,7 @@ int ServerConnection(int sock, char* method, char* absolute_form,
     int inbuf;
     char* buf;
     char* response_header = responseHeader(sfd, &buf, &inbuf, &status_code, conn_status, &response_fields, &header_len);
+    *stat_code = status_code;
 
     printf("\nresponse header -\n%s\n", response_header);
 
@@ -220,7 +221,9 @@ int ServerConnection(int sock, char* method, char* absolute_form,
             ret = -1;
         }
 
-        insert_cache(cache, absolute_form, response_header, header_len, final_body, body_len);
+        *bytes = body_len + header_len;
+
+        insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, final_body, body_len);
         free(final_body);
         free(response_header);
 
@@ -250,7 +253,9 @@ int ServerConnection(int sock, char* method, char* absolute_form,
         send_message(sock, response_body, body_length);
     }
 
-    insert_cache(cache, absolute_form, response_header, header_len, response_body, body_length);
+    *bytes = body_length + header_len;
+
+    insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, response_body, body_length);
     free(response_body);
     free(response_header);
     

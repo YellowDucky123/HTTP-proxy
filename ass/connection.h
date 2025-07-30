@@ -31,6 +31,9 @@ int ServerConnection(
     char* buffer, 
     int buffer_len, 
     int* inbuf_used,
-    cache* cache);
+    cache* cache, 
+    int* stat_code, 
+    int* bytes,
+    char* request_line);
 
 #endif

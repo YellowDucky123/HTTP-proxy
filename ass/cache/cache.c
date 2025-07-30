@@ -26,7 +26,7 @@ int delete_cache_LRU(struct cache* cache) {
     return 0;
 }
 
-int insert_cache(struct cache* cache, char* form, char* header, int header_len, char* body, int body_len) {
+int insert_cache(struct cache* cache, char* request_line, int status_code, char* form, char* header, int header_len, char* body, int body_len) {
     printf("----> Inserting into cache\n");
     if(cache->curr_size + 1 > cache->capacity) {
         delete_cache_LRU(cache);
@@ -36,6 +36,9 @@ int insert_cache(struct cache* cache, char* form, char* header, int header_len, 
     free(form2);
 
     res r;
+    r.log = strdup(request_line);
+    r.bytes = body_len + header_len;
+    r.status_code = status_code;
     r.b_len = body_len;
     r.h_len = header_len;
     r.body = malloc(body_len);

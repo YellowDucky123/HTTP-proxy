@@ -8,8 +8,7 @@ void delNode(struct Node* node);
 
 // Function to create a new node
 Node *createNode(char* key, res data) {
-    struct Node *new_node = (struct Node *)
-    malloc(sizeof(struct Node));
+    struct Node *new_node = malloc(sizeof(struct Node));
     new_node->data = data;
     new_node->key = strdup(key);
     new_node->next = NULL;

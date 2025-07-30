@@ -2,6 +2,9 @@
 #define DLL_H
 
 typedef struct res {
+    char* log;
+    int status_code;
+    int bytes;
     char* header;
     int h_len;
     char* body;
