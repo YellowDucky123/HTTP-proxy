@@ -26,7 +26,7 @@ typedef struct Node {
 
 struct Node *insertAtFront(struct Node *head, char* key, res new_data);
 struct Node* moveToFront(struct Node* head, struct Node* node);
-struct Node* delLast(struct Node *head, char** del_key);
+struct Node* delLast(struct Node *head, char** del_key, int* bytes);
 struct Node *delHead(struct Node *head);
 struct Node* delPos(struct Node* head, struct Node* node);
 

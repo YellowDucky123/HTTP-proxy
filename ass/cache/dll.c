@@ -50,13 +50,17 @@ struct Node* moveToFront(struct Node* head, struct Node* node) {
 }
 
 // Function to delete the last node of the doubly linked list
-struct Node* delLast(struct Node *head, char** del_key) {
+struct Node* delLast(struct Node *head, char** del_key, int* bytes) {
   
     // Corner cases
-    if (head == NULL)
+    if (head == NULL) {
+        *del_key = NULL;
+        *bytes = 0;
         return NULL;
+    }
     if (head->next == NULL) {
         *del_key = head->key;
+        *bytes = head->data.bytes;
         delNode(head);
         return NULL;
     }
@@ -65,6 +69,8 @@ struct Node* delLast(struct Node *head, char** del_key) {
     struct Node *curr = head;
     while (curr->next != NULL)
         curr = curr->next;
+
+    *bytes = curr->data.bytes;
 
     // Update the previous node's next pointer
     curr->prev->next = NULL;

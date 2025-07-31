@@ -11,11 +11,15 @@
 #include <unistd.h>
 #include <time.h>
 #include <stdlib.h>
+#include <sys/select.h>
+#include <pthread.h>	// multi thread
 
 // custom includes
 #include "linkedlist.h"
 #include "util.h"
 #include "cache/cache.h"
+
+
 
 // 
 #define HEAD 1
@@ -143,8 +147,8 @@ int ConnectMethodServerConnection(int client_sock, int sfd) {
     return 0;
 }
 
-int ServerConnection(int sock, char* method, char* absolute_form, 
-    char* buffer, int buffer_len, int* inbuf_used, cache* cache, int* stat_code, int* bytes, char* request_line) {
+int ServerConnection(int sock, char* method, char* absolute_form, char* buffer, int buffer_len, 
+    int* inbuf_used, cache* cache, int* stat_code, int* bytes, char* request_line, pthread_mutex_t* stats_lock) {
     struct linkedlist header_fields = linkedListConstructor();
     int requestMethod = requestMethodWord(method);
 
@@ -223,7 +227,12 @@ int ServerConnection(int sock, char* method, char* absolute_form,
 
         *bytes = body_len + header_len;
 
-        insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, final_body, body_len);
+        if(requestMethod == GET) {
+            pthread_mutex_lock(stats_lock);
+            insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, final_body, body_len);
+            pthread_mutex_unlock(stats_lock);
+        }
+
         free(final_body);
         free(response_header);
 
@@ -255,7 +264,12 @@ int ServerConnection(int sock, char* method, char* absolute_form,
 
     *bytes = body_length + header_len;
 
-    insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, response_body, body_length);
+    if(requestMethod == GET) {
+        pthread_mutex_lock(stats_lock);
+        insert_cache(cache, request_line, status_code, absolute_form, response_header, header_len, response_body, body_length);
+        pthread_mutex_unlock(stats_lock);
+    }
+
     free(response_body);
     free(response_header);
     

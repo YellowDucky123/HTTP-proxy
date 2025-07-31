@@ -1,6 +1,8 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
+#include <pthread.h>	// multi thread
+
 #include "cache/cache.h"
 #include "util.h"
 
@@ -34,6 +36,7 @@ int ServerConnection(
     cache* cache, 
     int* stat_code, 
     int* bytes,
-    char* request_line);
+    char* request_line,
+    pthread_mutex_t* stats_lock);
 
 #endif

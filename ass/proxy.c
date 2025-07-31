@@ -8,6 +8,7 @@
 #include <fcntl.h>	// unblocking and select
 #include <pthread.h>	// multi thread
 #include <netinet/in.h>	
+#include <sys/select.h>
 #include "connection.h"
 #include "linkedlist.h"
 #include "cache/cache.h"
@@ -17,7 +18,7 @@ int PORT;
 int timeout_duration;
 int max_object_size;
 int max_cache_size;
-static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void process_connect_data(int sock, char* host, char* Proxy_auth);
 void* handle_client(void* thread_data);
@@ -268,7 +269,8 @@ void* handle_client(void* thread_data) {
 			cache,
 			&status_code,
 			&bytes,
-			request_line
+			request_line,
+			&stats_lock
 		);
 
 		logging(PORT, (strcasecmp(method, "GET") == 0) ? 'M' : '-', request_line, status_code, bytes);

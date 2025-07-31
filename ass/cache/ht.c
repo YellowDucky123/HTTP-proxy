@@ -21,6 +21,10 @@ ht* ht_construct(int size, int max_object_size) {
 }
 
 int ht_delete(ht* ht, char* key) {
+    if(key == NULL) {
+        return 0; // Nothing to delete
+    }
+
     // AND hash with capacity-1 to ensure it's within entries array.
     uint64_t hash = hash_key(key);
     size_t index = (size_t)(hash & (uint64_t)(ht->size - 1));
