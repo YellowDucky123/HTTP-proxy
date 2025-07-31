@@ -1,4 +1,0 @@
-curl http://httpbin.org/post 
--x '127.0.0.1:50123' 
--H "Content-Type: application/json"  
--d '{"name":"Kelvin","course":"COMP3331"}'
